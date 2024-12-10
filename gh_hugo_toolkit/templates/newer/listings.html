@@ -1,0 +1,116 @@
+{{/* 
+    listings.html
+    This template lists all GitHub project pages in a responsive grid layout.
+
+    Assumptions:
+    - This template uses Hugo’s page listing to display all `.Pages` 
+      under the `content/projects/` directory.
+    - It uses `.Summary` for the project description and expects that each 
+      project page has a featured image resource named `featured.png` or similar.
+    - Images are placed in the repository's `static/images/<repo-name>/` directory.
+    
+    Integration:
+    - Place this file in `layouts/ghprojects/listings.html`.
+    - The `_index.md` file in `content/projects/` sets the title and triggers this layout.
+    - Ensure your Hugo site configuration or the Ananke theme points to this layout for project listings.
+    - Customize CSS styles as needed to match your site's design language.
+*/}}
+
+{{ define "header" }}
+    {{ partial "page-header.html" . }}
+{{ end }}
+
+{{ define "main" }}
+<section style="padding: 1rem 1.5rem;">
+    <div style="max-width: 1000px; margin: 0 auto;">
+        <!-- Breadcrumb navigation -->
+        <nav style="font-size: 0.875rem; color: #666666; margin-bottom: 1.5rem;">
+            <a href="{{ "/" | relLangURL }}" style="color: #007acc; text-decoration: none; border-bottom: 1px solid transparent; transition: border-color 0.2s;"
+                onmouseover="this.style.borderColor='#007acc';"
+                onmouseout="this.style.borderColor='transparent';">Home</a> /
+
+            {{/* If you have parent sections, add links accordingly */}}
+            {{ if .Parent }}
+            <a href="{{ .Parent.Permalink }}" style="color: #007acc; text-decoration: none; border-bottom: 1px solid transparent; transition: border-color 0.2s;"
+                onmouseover="this.style.borderColor='#007acc';" 
+                onmouseout="this.style.borderColor='transparent';">{{ .Parent.Title }}</a> /
+            {{ end }}
+        </nav>
+
+        <!-- Responsive Grid layout for projects -->
+        <div style="
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 2rem;
+        ">
+            {{ range .Pages }}
+            <div style="
+                border: 1px solid #e0e0e0;
+                border-radius: 8px;
+                padding: 1rem;
+                transition: box-shadow 0.2s ease;
+                display: flex;
+                flex-direction: column;
+                height: 100%;
+            ">
+                <!-- Project title -->
+                <h2 style="font-size: 1.5rem; margin-bottom: 0.75rem;">
+                    <a href="{{ .RelPermalink }}" style="text-decoration: none; color: inherit;">
+                        {{ .Title }}
+                    </a>
+                </h2>
+
+                <!-- Featured image -->
+                {{ with .Resources.GetMatch "featured.*" }}
+                <img src="{{ .RelPermalink }}" alt="{{ .Params.title | default .Title }}" style="
+                    width: 100%;
+                    height: auto;
+                    object-fit: cover;
+                    margin-bottom: 1rem;
+                    border-radius: 8px;
+                ">
+                {{ else }}
+                <!-- Placeholder image or alternative content -->
+                <div style="
+                    width: 100%;
+                    height: 150px;
+                    background-color: #f0f0f0;
+                    margin-bottom: 1rem;
+                    border-radius: 8px;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    color: #aaa;
+                    font-size: 1rem;
+                ">
+                    No Image Available
+                </div>
+                {{ end }}
+
+                <!-- Project summary -->
+                <p style="color: #555; line-height: 1.5; flex-grow: 1;">
+                    {{ .Summary }}
+                </p>
+
+                <!-- Additional links or actions -->
+                <div style="margin-top: 1rem;">
+                    <a href="{{ .RelPermalink }}" style="
+                        display: inline-block;
+                        padding: 0.5rem 1rem;
+                        background-color: #007acc;
+                        color: white;
+                        border-radius: 5px;
+                        text-decoration: none;
+                        transition: background-color 0.3s ease;
+                    " 
+                    onmouseover="this.style.backgroundColor='#005fa3';" 
+                    onmouseout="this.style.backgroundColor='#007acc';">
+                        View Project
+                    </a>
+                </div>
+            </div>
+            {{ end }}
+        </div>
+    </div>
+</section>
+{{ end }}
