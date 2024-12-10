@@ -4,6 +4,7 @@ import json
 import base64
 import logging
 import argparse
+import yaml
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
@@ -20,13 +21,14 @@ def get_headers(auth_token=None):
         headers["Authorization"] = f"token {auth_token}"
     return headers
 
-def fetch_github_repos(username, auth_token=None):
+def fetch_github_repos(username, auth_token=None, private=False):
     """
-    Fetch public and private repositories for the authenticated user.
-    If no auth token is provided, only public repositories are fetched.
+    Fetch public (and private if set to True) repositories for the authenticated
+    user. If no auth token is provided, only public repositories are fetched.
 
     :param username: The GitHub username to fetch repositories for.
     :param auth_token: Personal access token for authenticating GitHub requests.
+    :param private: Boolean indicating whether to fetch private repositories.
     :return: A list of dictionaries representing GitHub repositories for the user.
     """
     repos = []
@@ -42,6 +44,8 @@ def fetch_github_repos(username, auth_token=None):
             cur_repos = resp.json()
             if not cur_repos:
                 break  # Exit when there are no more repos
+            if not private:
+                cur_repos = [repo for repo in cur_repos if not repo['private']]
             repos.extend(cur_repos)
             page += 1
         else:
@@ -150,11 +154,62 @@ def fetch_extra_metadata(username, repos, auth_token=None):
 
     return repos_data
 
+def write_hugo_project(repos, base_dir="content/ghprojects"):
+    os.makedirs(base_dir, exist_ok=True)
+
+    for repo in repos:
+        repo_dir = os.path.join(base_dir, repo['name'])
+        os.makedirs(repo_dir, exist_ok=True)
+        
+        frontmatter = {
+            'title': repo['name'],
+            'description': repo.get('description', ''),
+            'date': repo['created_at'],
+            'layout': 'ghproject',
+            'tags': ['GitHub', 'project'],
+            'languages': list(repo.get('languages', {}).keys()),
+            'stars': repo.get('stargazers_count', 0),
+            'forks': repo.get('forks_count', 0),
+            'open_issues': repo.get('open_issues_count', 0),
+            'links': [
+                {'name': 'GitHub', 'url': repo['html_url']},
+            ]
+        }
+
+        # Add GitHub Pages link if available
+        if repo.get('has_pages', False):
+            frontmatter['links'].append({
+                'name': 'GitHub Pages',
+                'url': f"https://{repo['owner']['login']}.github.io/{repo['name']}/"
+            })
+
+        # Write index.md
+        with open(os.path.join(repo_dir, "index.md"), "w") as f:
+            # Write frontmatter
+            f.write("---\n")
+            f.write(yaml.dump(frontmatter, default_flow_style=False))
+            f.write("---\n")
+            
+            # Write content
+            f.write(f"# {repo['name']}\n")
+            if repo.get('description'):
+                f.write(f"{repo['description']}\n")
+            
+            # Add readme if available
+            if 'readme_content' in repo:
+                f.write("\n## README\n")
+                f.write(repo['readme_content'])
+
+# Update main() to use this:
+    if args.output_type == "project":
+        write_hugo_project(repos)
+
 def main():
     parser = argparse.ArgumentParser(description="Generate detailed GitHub repository JSON data.")
     parser.add_argument("username", type=str, help="GitHub username to retrieve repositories for")
-    parser.add_argument("--auth-token", type=str, help="GitHub personal access token for accessing private repositories")
+    parser.add_argument("--auth-token", type=str, help="GitHub personal access token for accessing private repositories. Defaults to GITHUB_TOKEN environment variable.")
     parser.add_argument("--extra-metadata", action="store_true", help="Fetch extra metadata for each retrieve repository", default=False)
+    parser.add_argument("--output-type", type=str, help="Output type for the result (json or project folder)", default="json")
 
     args = parser.parse_args()
 
@@ -168,8 +223,17 @@ def main():
     if args.extra_metadata:
         repos = fetch_extra_metadata(username=args.username, repos=repos, auth_token=auth_token)
 
-    # Output the result
-    print(json.dumps(repos, indent=4))
+    if args.output_type == "project":
+        # Create a directory for the project
+        project_dir = f"{args.username}_repos"
+        os.makedirs(project_dir, exist_ok=True)
+        for repo in repos:
+            repo_dir = os.path.join(project_dir, repo['name'])
+            os.makedirs(repo_dir, exist_ok=True)
+            with open(os.path.join(repo_dir, "metadata.json"), "w") as f:
+                json.dump(repo, f, indent=4)
+    else:
+        print(json.dumps(repos, indent=2))
 
 if __name__ == "__main__":
     main()

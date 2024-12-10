@@ -166,7 +166,7 @@ def create_project_item(repo, username,
 def generate_projects(username,
                       author=None,
                       email=None,
-                      layout=):
+                      layout=None):
     repos = fetch_github_repos(username)
     for repo in repos:
         print(f"Generating project for {repo['name']}...")
