@@ -1,4 +1,3 @@
-import os
 import requests
 import base64
 import logging
@@ -17,7 +16,6 @@ def set_logging_level(quiet: bool, verbose: bool):
         logging.basicConfig(level=logging.DEBUG, format="%(levelname)s: %(message)s")
     else:
         logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
-
 
 def _paginate_github_api(
     session: requests.Session,
@@ -50,7 +48,6 @@ def _paginate_github_api(
 
     return results
 
-
 def fetch_extra_repo_metadata(
     username: str,
     repo_name: str,
@@ -80,26 +77,34 @@ def fetch_extra_repo_metadata(
             try:
                 readme_data = readme_resp.json()
                 metadata["readme_content"] = base64.b64decode(readme_data['content']).decode('utf-8', errors='replace')
+                logger.info(f"Fetched README for {username}/{repo_name}")
             except (KeyError, base64.binascii.Error) as e:
                 logger.warning(f"Error decoding README for {username}/{repo_name}: {e}")
 
         # GitHub Pages
         pages_url = f"https://{GITHUB_IO_URL.format(username=username)}/{repo_name}/"
-        pages_resp = session.get(pages_url)
+        pages_resp = session.get(pages_url, headers=headers)
         if pages_resp.status_code == 200:
+            logger.info(f"Fetching GitHub Pages: {pages_url}")
             metadata["github_pages"] = pages_url
 
         # Images in root
         content_url = f"{BASE_API_URL}/repos/{username}/{repo_name}/contents/"
         content_resp = session.get(content_url, headers=headers)
+        metadata["images"] = []
         if content_resp.status_code == 200:
             content_data = content_resp.json()
             images = [
                 f["name"] for f in content_data
-                if f.get("type") == "file" and f["name"].lower().endswith((".png", ".jpg", ".jpeg", ".gif"))
+                if f.get("type") == "file" and f["name"].lower().endswith((
+                    ".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp"))
             ]
             if images:
                 metadata["images"] = images
+            else:
+                logger.info(f"No images found in the root directory of {username}/{repo_name}")
+        else:
+            logger.info(f"Failed to fetch content for {username}/{repo_name}: {content_resp.status_code}")
 
     return metadata
 
@@ -119,3 +124,4 @@ def sort_repos(repos: List[Dict], sort_key: Optional[str]) -> List[Dict]:
     if not sort_key:
         return repos
     return sorted(repos, key=lambda r: r.get(sort_key, ''))
+

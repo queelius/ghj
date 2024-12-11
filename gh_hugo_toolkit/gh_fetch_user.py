@@ -29,6 +29,7 @@ def fetch_github_repos(
             logger.info(f"Fetching public repositories for user '{username}'...")
             public_url = f"{BASE_API_URL}/users/{username}/repos"
             public_repos = _paginate_github_api(session, public_url, headers, params={'type': 'public'})
+            logger.info(f"Fetched {len(public_repos)} public repositories.")
             repos.extend(public_repos)
 
         # Fetch private repos
@@ -39,6 +40,7 @@ def fetch_github_repos(
                 logger.info(f"Fetching private repositories for user '{username}'...")
                 private_url = f"{BASE_API_URL}/user/repos"
                 private_repos = _paginate_github_api(session, private_url, headers, params={'visibility': 'private'})
+                logger.info(f"Fetched {len(private_repos)} private repositories.")
                 repos.extend(private_repos)
 
     if not repos:
@@ -101,6 +103,7 @@ def main():
             fetch_public=fetch_public,
             fetch_private=fetch_private
         )
+        logger.info(f"Fetched {len(repos)} repositories from GitHub.")
 
     # Apply filtering
     if args.filter:
@@ -110,7 +113,9 @@ def main():
 
     # If extra-metadata is requested, fetch it
     if args.extra_metadata and repos:
-        repos = fetch_extra_metadata(username=args.username, repos=repos, auth_token=args.auth_token)
+        repos = fetch_extra_metadata(username=args.username,
+                                     repos=repos,
+                                     auth_token=args.auth_token)
 
     # Sorting
     if args.sort_by:
