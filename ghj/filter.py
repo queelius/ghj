@@ -1,5 +1,3 @@
-# ghj/filter.py
-
 import jmespath
 from typing import List, Dict, Any
 from .utils import console
@@ -11,7 +9,7 @@ FILTER_EXAMPLES = [
     ("Non-fork repos", "fork == `false`"),
     ("Python repos with >50 stars", "language == 'Python' && stargazers_count > `50`"),
     ("Recently updated", "contains(updated_at, '2024')"),
-    ("Complex query", "language == 'Python' && stargazers_count > `50` && (language == 'Python' || language == 'JavaScript')")
+    ("Complex query", "language == 'Python' && stargazers_count > `50` && (language == 'Python' || language == 'JavaScript')"),
     ("Contains topic", "contains(topics, 'data-science')")
 ]
 

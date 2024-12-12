@@ -1,15 +1,10 @@
-#!/usr/bin/env python3
-
 import sys
 import os
 import json
 import yaml
 import argparse
-import logging
 import requests
-
-logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
-logger = logging.getLogger(__name__)
+from .utils import logger
 
 def write_hugo_projects(repos, base_dir="content/projects", static_dir="static/images"):
     """

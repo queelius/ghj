@@ -12,21 +12,21 @@ from typing import Optional, List, Dict
 from pathlib import Path
 import click
 from .utils import console
-
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(message)s",
-    datefmt="[%X]",
-    handlers=[RichHandler(console=console)]
-)
-logger = logging.getLogger("ghj")
+from .utils import logger
+from .fetch import fetch_user_repos, fetch_repos as fr
 
 @click.group()
 @click.version_option(version="0.1.0")
-def cli():
+@click.option('--log-level', 
+              type=click.Choice(['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'], 
+              case_sensitive=False),
+              envvar='GHJ_LOG_LEVEL',
+              default='INFO',
+              help='Set logging level')
+def cli(log_level: str):
     """GitHub JSON (ghj) - A toolkit for working with GitHub repository metadata"""
-    pass
+    from .utils import logger
+    logger.setLevel(log_level.upper())
 
 @cli.group()
 def fetch():
@@ -36,38 +36,77 @@ def fetch():
 @fetch.command("user")
 @click.argument("username")
 @click.option("--auth-token", envvar="GITHUB_TOKEN", help="GitHub personal access token")
-@click.option("--extra/--no-extra", default=False, help="Fetch extra metadata like README")
-@click.option("--public/--no-public", default=False, help="Include public repositories")
+@click.option("--extra/--no-extra", default=True, help="Fetch extra metadata like README")
+@click.option("--public/--no-public", default=True, help="Include public repositories")
 @click.option("--private/--no-private", default=False, help="Include private repositories")
+@click.option("--output", "-o", help="Output file (defaults to stdout)")
 def fetch_user(username: str,
                auth_token: Optional[str],
                extra: bool,
                public: bool,
-               private: bool):
+               private: bool,
+               output: Optional[str]):
     """Fetch repositories for a GitHub user"""
 
-    from ghj.fetch_user import fetch_github_repos, fetch_extra_metadata
     with Progress(
         SpinnerColumn(),
         TextColumn("[progress.description]{task.description}"),
         console=console
     ) as progress:
         task = progress.add_task(f"Fetching repos for {username}...", total=None)
-        repos = fetch_github_repos(username, auth_token, fetch_public=public, fetch_private=private)
+        repos = fetch_user_repos(username,
+                                 auth_token,
+                                 fetch_public=public,
+                                 fetch_private=private,
+                                 extra=extra)
         progress.update(task, completed=True)
-    console.print(Panel(f"[green]Successfully fetched repositories for {username}"))
 
-@fetch.command("repo")
-@click.argument("owner")
-@click.argument("repo")
+    console.print(Panel(f"[green]Successfully fetched {len(repos)} repositories for {username}"))
+
+    if output:
+        with open(output, "w") as f:
+            json.dump(repos, f, indent=2)
+        console.print(f"[green]Successfully wrote repositories to {output}")
+    else:
+        print(json.dumps(repos, indent=2))
+
+@fetch.command("repos")
+@click.argument("owner-repos", nargs=-1, required=False)
 @click.option("--auth-token", envvar="GITHUB_TOKEN", help="GitHub personal access token")
-@click.option("--extra/--no-extra", default=False, help="Fetch extra metadata like README")
-def fetch_repo(owner: str, repo: str, auth_token: Optional[str], extra: bool):
+@click.option("--extra/--no-extra", default=True, help="Fetch extra metadata like README")
+@click.option("--output", "-o", help="Output file (defaults to stdout)")
+def fetch_repos(owner_repos: List[str],
+                auth_token: Optional[str],
+                extra: bool,
+                output: Optional[str]):
     """Fetch metadata for a single repository"""
-    with console.status(f"Fetching {owner}/{repo}..."):
-        # TODO: Implement fetch logic
-        pass
-    console.print(f"[green]Successfully fetched {owner}/{repo}")
+
+    try:
+        # Handle both file and stdin
+        if owner_repos:
+            owner_repos = list(owner_repos)
+        else:
+            if sys.stdin.isatty():  # No pipe input
+                console.print("[red]Error:[/red] No input provided")
+                sys.exit(1)
+            owner_repos = sys.stdin.read().strip().split()
+    except json.JSONDecodeError as e:
+        console.print(f"[red]Invalid JSON:[/red] {str(e)}")
+        sys.exit(1)
+    except Exception as e:
+        console.print(f"[red]Error:[/red] {str(e)}")
+        sys.exit(1)
+
+    with console.status(f"Fetching repos..."):
+        repos = fr(owner_repos, extra=extra, auth_token=auth_token)
+        console.print(f"[green]Successfully fetched {len(repos)} out of {len(owner_repos)} repositories")
+
+    if output:
+        with open(output, "w") as f:
+            json.dump(repos, f, indent=2)
+        console.print(f"[green]Successfully wrote repository data to {output}")
+    else:
+        print(json.dumps(repos, indent=2))
 
 @cli.group(invoke_without_command=True)
 @click.option("--examples", is_flag=True, help="Show set examples")
@@ -87,7 +126,6 @@ def sets(ctx, examples: bool):
 def diff(files: List[str], output: Optional[str]):
     """Get repositories in the first file that are not in the others"""
 
-    import  time
     from .set import set_diff
     with console.status("Computing the set difference `files[0] - files[1:]`..."):
         repos = set_diff(files)
