@@ -1,80 +1,83 @@
-# GitHub to Hugo Integration Tool
+# `ghj`: GitHub JSON
 
-This project provides a two-step pipeline for fetching GitHub repository metadata as JSON and then converting it into Hugo-compatible content for a static site.
+This project provides a pipeline for fetching GitHub repository metadata as JSON
+along with a set of tools to filter, sort, query, merge, and render this data into a Hugo
+content. Additionally, it comes with a dashboard `ghj dash` to visualize and
+query the data, including an LLM (Large Language Model) for asking questions
+about the repositories.
 
 ## Overview
 
-1. **GitHub Fetch User**:
-   A Python script `gh_fetch_user.py` fetches user repositories from GitHub’s API and outputs their metadata as a JSON file. This tool:
-   - Uses a GitHub personal access token (optional) for private repos.
-   - Fetches basic repo metadata and (optionally) extra metadata like contributors, README content, images, etc.
-   - Outputs a single JSON file to standard output.
+The `ghj` toolkit consists of several tools. Optionally, a GitHub personal access token for private repos and higher rate limits.
 
-2. **GitHub Fetch Repo**:
-   A Python script `gh_fetch_repo.py` fetches a single repository’s metadata from GitHub’s API and outputs it as JSON. This tool:
-   - Fetches basic repo metadata and (optionally) extra metadata like contributors, README content, images, etc.
-   - Outputs a single JSON file to standard output.
-
-3. **JSON Tools**:
-   A Python script (e.g., `gh_json.py`) provides utilities for working with GitHub JSON data:
-   - Merging multiple JSON files into a single file.
-   - Filtering JSON data by tags, languages, etc.
-   - Sorting JSON data by stars, forks, etc.
-
-4. **Hugo Render**:
-   Another Python script (`gh_hugo.py`) takes the JSON file and converts each repository into a Hugo content page under `content/projects/`.
-   - Optionally downloads a featured image for each repo if an image URL is provided.
-   - Generates a `index.md` file with Hugo front matter, referencing the repo’s metadata, and places images in `static/images/<repo_name>/`.
-   - Also supports a simple Markdown listing mode if you don’t want Hugo front matter.
-
-3. **Hugo Layouts**:  
-   The included Hugo layout files (`listings.html` and `ghproject.html`) define how these project pages are displayed on your Hugo site.
-   - `listings.html` shows an overview of all projects.
-   - `ghproject.html` displays a single project’s details, including featured image, links, tags, etc.
-   
-   These layouts are meant to be used with a Hugo project (e.g., using the Ananke theme) and placed in `layouts/ghprojects/`.
+- **GitHub Fetch User**: A Python script `gh_fetch_user.py` fetches user repositories from GitHub’s API and outputs their metadata as a JSON file. This tool:
+  - Fetches basic repo metadata and (optionally) extra metadata like README content, image URLs, etc. Particularly useful for generating project pages in static site generators like Hugo.
+    - Outputs JSON to standard output.
+- **Fetch User**: `ghj fetch user` fetches all the repository metadata for a particular user.
+  - Fetches basic repo metadata and (optionally) extra metadata like contributors, README content, images, etc.
+  - Outputs JSON to standard output.
+- **Fetch Repo**: `ghj fetch repo` fetches a single repository’s metadata.
+  - Fetches basic repo metadata and (optionally) extra metadata like contributors, README content, images, etc.
+  - Outputs JSON to standard output.
+- **Repo Sets**: `ghj diff`, `ghj merge`, `ghj intersect` for set-like operations on JSON files.
+  - Merging multiple JSON repos.
+  - Set-difference between two JSON repos, e.g., `ghj diff repo1.json repo2.json` to get repos in `repo1.json` but not in `repo2.json`.
+  - Intersection of two JSON repos, e.g., `ghj intersect repo1.json repo2.json` to get repos in both `repo1.json` and `repo2.json`.
+- **Dashboard**: `ghj dash` is a dashboard for visualizing and querying the repository data.
+  - A web-based dashboard for querying and visualizing the repository data.
+  - Includes a Large Language Model (LLM) for asking questions about the repositories.
+- **Filter**: `ghj filter` is a simple filter of repositories by language, stars, forks, etc.
+  - It uses *JMESPath* for querying the JSON data.
+- **Stats**: `ghj stats` provides basic statistics about the repositories.
+  - E.g., total number of repositories, average stars, forks, etc.
+- **Sort**: `ghj sort` sorts repositories by stars, forks, etc.
+- **LLM**: `ghj llm` for asking an LLM about the repositories.
+- **Hugo**: `ghj hugo`) takes the JSON file and converts each repository into a Hugo content page under `content/projects/`.
+  - Optionally downloads a featured image for each repo if an image array `images` is contained in the JSON data for that repo.
+  - Generates a `index.md` file with Hugo front matter, referencing the repo’s metadata, and places images in `static/images/<repo_name>/`.
+  - Also supports a simple Markdown listing mode if you don’t want Hugo front matter.
+  - The included Hugo layout files (`listings.html` and `ghproject.html`) define how these project pages are displayed on your Hugo site.
+    - `listings.html` shows an overview of all projects.
+    - `ghproject.html` displays a single project’s details, including featured image, links, tags, etc.
 
 ## Prerequisites
 
 - **Python 3.6+**
-- **Hugo** static site generator (installed and configured)
 - **GitHub Personal Access Token (optional)** if you need private repositories or higher rate limits.
 
 ## Installation
 
-1. **Python Tools:**
-   Install the Python package:
+- **Python Tools:** Install the Python package:
+  
+  ```bash
+  pip install ghj
+  ```
+
+  This installs the `ghj` Python package and its command-line tool `ghj`.
+
+- **Hugo Setup:** Add the Ananke theme (or ensure it’s already present):
+
    ```bash
-   pip install .
+   cd myhugosite
+   git submodule add https://github.com/theNewDynamic/gohugo-theme-ananke.git themes/ananke
    ```
-   This installs the `gh_hugo_toolkit` and console scripts.
 
-2. **Hugo Setup:**
-   - Create a new Hugo site if you haven’t already:
-     ```bash
-     hugo new site myhugosite
-     ```
-   - Add the Ananke theme (or ensure it’s already present):
-     ```bash
-     cd myhugosite
-     git submodule add https://github.com/theNewDynamic/gohugo-theme-ananke.git themes/ananke
-     ```
-   - Place the `listings.html` and `ghproject.html` files into `myhugosite/layouts/ghprojects/`.
+   Place the `listings.html` and `project.html` files into `myhugosite/layouts/projects/`.
 
-## Usage
+## Hugo Usage
 
 ### Step 1: Fetch GitHub Repositories as JSON
 
 Run the fetch tool to get all public repos from a user:
 
 ```bash
-gh_fetch_user username > pub-repos.json
+ghj fetch user <USER>> > pub-repos.json
 ```
 
 Or with private repos and extra metadata:
 
 ```bash
-gh_fetch_user username --auth-token <YOUR_TOKEN> --no-public --private --extra-metadata > priv-repos.json
+ghj fetch user <USER> --auth-token <YOUR_TOKEN> --no-public --private --extra > priv-repos.json
 ```
 
 ### Step 2: Render JSON to Hugo Content
@@ -82,12 +85,13 @@ gh_fetch_user username --auth-token <YOUR_TOKEN> --no-public --private --extra-m
 Once you have `pub-repos.json`, run the renderer:
 
 ```bash
-gh-hugo pub-repos.json
+ghj hugo pub-repos.json --images --output myhugosite/content/projects/
 ```
 
 This will:
+
 - Create `content/projects/<repo-name>/index.md` for each repo.
-- Download the first image as `static/images/<repo-name>/featured.png` if available.
+- Download either `featured.png` or the first image in the root of the repo as `static/images/<repo-name>/featured.png` if available.
 
 ### Integrating with Hugo
 
@@ -100,20 +104,20 @@ hugo server
 Navigate to `http://localhost:1313/` to see your projects listed.
 
 - The `listings.html` layout works with `_index.md` in `content/projects/`.
-- Each project page uses `ghproject.html` to display details.
+- Each project page uses `project.html` to display details. Feel free to customize these layouts as needed.
 
-## Requirements & Assumptions
+## Dashboard Usage
 
-- The `gh_hugo.py` script expects JSON from `gh_fetch_user.py` or `gh_fetch_repo.py`.
-- The JSON should contain `name`, `description`, `stargazers_count`, `open_issues_count`, `languages`, `readme_content`, and optionally `images`.
-- `gh_hugo.py` will try to download images if provided as absolute URLs.
-- The Hugo layouts assume `featured.png` as a featured image. This is created by `gh_hugo.py` if an image is available.
-- The Ananke theme may be customized; the provided layouts are minimal and may be adapted as needed.
+The dashboard is a web-based tool for querying and visualizing the repository data.
 
-## Contributing
+```bash
+ghj dash
+```
 
-Feel free to open issues or submit PRs to improve the scripts or Hugo layouts.
+This is a streamlit app that runs in your browser. It includes:
 
-## License
-
-This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
+- A dialog for selectting one or more JSON repo files to load.
+- A search bar for querying the repositories.
+- A Large Language Model (LLM) for asking questions about the repositories.
+- A table view of the repositories with sorting and filtering options.
+- Various visualizations like a scatter plot of stars vs. forks, a histogram of stars, etc.

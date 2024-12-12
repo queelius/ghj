@@ -1,3 +1,4 @@
+import json
 import requests
 import base64
 import logging
@@ -125,3 +126,10 @@ def sort_repos(repos: List[Dict], sort_key: Optional[str]) -> List[Dict]:
         return repos
     return sorted(repos, key=lambda r: r.get(sort_key, ''))
 
+def load_json(file):
+    with open(file) as f:
+        return json.load(f)
+
+def save_json(data, file):
+    with open(file, 'w') as f:
+        json.dump(data, f, indent=2)
