@@ -3,6 +3,17 @@ import requests
 import base64
 import logging
 from typing import List, Dict, Optional
+from rich.console import Console
+from rich.theme import Theme
+
+theme = Theme({
+    "error": "bold red",
+    "warning": "yellow",
+    "info": "cyan",
+    "success": "bold green"
+})
+
+console = Console(theme=theme, highlight=True, stderr=True)
 
 BASE_API_URL = "https://api.github.com"
 GITHUB_IO_URL = "{username}.github.io"

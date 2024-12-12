@@ -1,175 +1,179 @@
+# ghj/ghj_dash.py
+
 import streamlit as st
 import json
-from dateutil import parser
-from dateutil.relativedelta import relativedelta
-from datetime import datetime
+from rich.console import Console
+from pathlib import Path
+from typing import Dict, List, Union
+from rich.console import Console
+import subprocess
 
-def display_key_value_table(data_dict, title, columns_per_row=3):
-    """
-    Display key-value pairs in a table with a specified number of columns per row.
+console = Console()
 
-    Args:
-        data_dict (dict): Dictionary containing key-value pairs to display.
-        title (str): Title of the table section.
-        columns_per_row (int): Number of columns per row in the table.
-    """
-    st.subheader(title)
-    items = list(data_dict.items())
-    # Split items into chunks based on columns_per_row
-    for i in range(0, len(items), columns_per_row):
-        chunk = items[i:i + columns_per_row]
-        cols = st.columns(columns_per_row)
-        for col, (key, value) in zip(cols, chunk):
-            col.markdown(f"**{key}**: {value}")
-    #st.markdown("---")  # Add a horizontal line for separation
+class DashboardApp:
+    def __init__(self):
+        st.set_page_config(layout="wide", page_title="GHJ Dashboard")
+        self.setup_styles()
 
-def show_repo(repo):
-    # Header with repository name, homepage, and GitHub link
-    header = f"### {repo.get('name', 'Unnamed Repository')}"
-    homepage = repo.get('homepage')
-    github_link = repo.get('html_url')
-    
-    if homepage:
-        header += f" 🏠 [Docs]({homepage})"
-    if github_link:
-        header += f" 📦 [GitHub]({github_link})"
-    
-    st.markdown(header)
-    
-    # Description
-    st.markdown(repo.get('description', 'No description provided.'))
-    
-    # Repository Stats
-    stats = {
-        "⭐ Stars": repo.get('stargazers_count', 0),
-        "🍴 Forks": repo.get('forks_count', 0),
-        "🐛 Open Issues": repo.get('open_issues_count', 0),
-        "👀 Watchers": repo.get('watchers_count', 0),
-        "🗣️ Contributors": len(repo.get('contributors', [])),
-        "🔽 Size": repo.get('size', 0),
-    }
+    def setup_styles(self):
+        st.markdown("""
+            <style>
+            .stApp {
+                max-width: 1200px;
+                margin: 0 auto;
+            }
+            </style>
+            """, unsafe_allow_html=True)
 
-    lic = repo.get('license')
-    if lic:
-        lic = lic.get('name', 'Unknown')
+    def load_json(self, file_path: Union[str, Path]) -> List[Dict]:
+        try:
+            with open(file_path) as f:
+                data = json.load(f)
+                return [data] if isinstance(data, dict) else data
+        except json.JSONDecodeError:
+            st.error("Invalid JSON file!")
+            return []
+        except FileNotFoundError:
+            st.error(f"File not found: {file_path}")
+            return []
 
-    # Additional Attributes
-    attributes = {
-        "🗣️ Language": repo.get('language', 'Unknown'),
-        "🔒 Visibility": repo.get('visibility', 'Unknown'),
-        "🔑 Fork": "Yes" if repo.get('fork') else "No",
-        "📦 Archived": "Yes" if repo.get('archived') else "No",
-        "📅 Created": parser.parse(repo.get('created_at', '')).strftime("%d %B %Y"),
-        "🔄 Last Push": parser.parse(repo.get('pushed_at', '')).strftime("%d %B %Y"),
-        "📝 License": lic,
-        "👤 Owner": repo.get('owner', {}).get('login', 'Unknown')
-    }
+    def display_stats(self, repos: List[Dict]):
+        st.subheader("📈 Repository Statistics")
+        total_stars = sum(repo.get('stargazers_count', 0) for repo in repos)
+        total_forks = sum(repo.get('forks_count', 0) for repo in repos)
+        
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Total Repositories", len(repos))
+        col2.metric("Total Stars", total_stars)
+        col3.metric("Total Forks", total_forks)
 
-    # Display Repository Stats with 3 columns per row
-    display_key_value_table(stats, "📊 Repository Stats", columns_per_row=3)
-    
-    # Display Additional Information with 3 columns per row
-    display_key_value_table(attributes, "ℹ️ Information", columns_per_row=3)
+    def display_repo_details(self, repo: Dict):
+        st.markdown(f"## {repo.get('name', 'Unnamed Repository')}")
+        st.markdown(f"⭐ {repo.get('stargazers_count', 0)} | 🍴 {repo.get('forks_count', 0)}")
+        
+        if 'description' in repo and repo['description']:
+            st.markdown(f"*{repo['description']}*")
+            
+        with st.expander("View Repository Details"):
+            st.json(repo)
+        
+        if 'readme_content' in repo:
+            st.markdown("### README")
+            st.markdown(repo['readme_content'])
 
-    # Expandable JSON Details
-    with st.expander("🔍 View Repository Details"):
-        st.json(repo)
+    def filter_repos(self, repos: List[Dict], search_query: str, field: str, value: str) -> List[Dict]:
+        filtered = repos
+        if search_query:
+            filtered = [
+                repo for repo in filtered
+                if search_query.lower() in str(repo.get('name', '')).lower() or
+                search_query.lower() in str(repo.get('description', '')).lower()
+            ]
+        if field and value:
+            filtered = [
+                repo for repo in filtered
+                if str(repo.get(field, '')).lower() == value.lower()
+            ]
+        return filtered
 
-    st.markdown(repo.get('readme_content', 'No README content available.'))
+    def run(self, json_path: str):
+        st.title('📊 GitHub Repository Dashboard')
 
-def main():
-    def load_json(uploaded_file):
-        if uploaded_file is not None:
-            try:
-                # Decode the uploaded file and load it as JSON
-                return json.load(uploaded_file)
-            except json.JSONDecodeError:
-                st.error("Invalid JSON file!")
-                return None
+        repos = []
+        if json_path:
+            repos = self.load_json(json_path)
         else:
-            st.error("No file uploaded!")
-            return None
+            # Show file upload widget
+            uploaded_file = st.file_uploader(
+                "Upload GitHub repository JSON file",
+                type=['json'],
+                help="Select a JSON file containing GitHub repository data"
+            )
+            
+            if uploaded_file:
+                try:
+                    repos = json.loads(uploaded_file.getvalue())
+                    if isinstance(repos, dict):
+                        repos = [repos]
+                    st.success("✅ File loaded successfully!")
+                except json.JSONDecodeError:
+                    st.error("❌ Invalid JSON file!")
+                    return
 
-    st.set_page_config(layout="wide")  # Make the window wider
-    st.title('📊 GitHub Repo JSON Dashboard')
+        # Display overall statistics
+        self.display_stats(repos)
 
-    # File uploader
-    json_file = st.file_uploader("📁 Upload your JSON file", type=["json"])
+        # Search and filter section
+        col1, col2 = st.columns([1, 3])
 
-    # Load JSON data if a file is uploaded
-    if json_file is not None:
-        repos = load_json(json_file)
+        with col1:
+            st.subheader("🔍 Search & Filter")
+            search_query = st.text_input("Search repositories:").lower()
+            
+            # Filter controls
+            field_options = ['name', 'language', 'stargazers_count', 'forks_count']
+            selected_field = st.selectbox("Filter by field:", field_options)
+            
+            # Get unique values for selected field
+            unique_values = set(str(repo.get(selected_field, '')) 
+                              for repo in repos if repo.get(selected_field))
+            if unique_values:
+                filter_value = st.selectbox(
+                    f"Select {selected_field}:",
+                    sorted(unique_values)
+                )
+            else:
+                filter_value = None
 
-        if repos is not None:
-            # Ensure repos is a list
-            if isinstance(repos, dict):
-                repos = [repos]
+            # Sort options
+            sort_by = st.selectbox(
+                "Sort by:",
+                ['stargazers_count', 'forks_count', 'name', 'updated_at']
+            )
+            sort_order = st.radio("Order:", ["Descending", "Ascending"])
 
-            # Layout with two columns
-            col1, col2 = st.columns([1, 3])
+        # Filter and sort repositories
+        filtered_repos = self.filter_repos(repos, search_query, selected_field, filter_value)
+        
+        # Sort repositories
+        filtered_repos.sort(
+            key=lambda x: x.get(sort_by, ''),
+            reverse=(sort_order == "Descending")
+        )
 
-            with col1:
-                # Search and filter
-                st.subheader("🔍 Search & Filter")
-                search_query = st.text_input("Search repositories:").lower()
+        # Display repositories
+        with col2:
+            st.subheader(f"📚 Repositories ({len(filtered_repos)})")
+            for repo in filtered_repos:
+                self.display_repo_details(repo)
 
-                # Filter feature by field
-                field_options = ['name', 'stargazers_count', 'forks_count', 'language']
-                selected_field = st.selectbox("Filter by field:", field_options)
-                field_value = st.text_input(f"Enter value for {selected_field}:").lower()
-
-                # Filter repositories based on search query and field value
-
-                def matcher(repo, search_query):
-                    for key, value in repo.items():
-                        if search_query in str(value).lower():
-                            return True
-                    return False
-
-                filtered_repos = [
-                    repo for repo in repos if matcher(repo, search_query) and
-                       (str(repo.get(selected_field, '')).lower() == field_value if field_value else True)
-                ]
-
-                if not filtered_repos:
-                    st.warning("No repositories match the filter criteria.")
-                else:
-                    # Sort repos by stargazers_count descending, then by pushed_at descending
-                    def sort_date_key(repo):
-                        pushed_at_str = repo.get('pushed_at', '1970-01-01T00:00:00Z')
-                        try:
-                            pushed_at_dt = parser.isoparse(pushed_at_str)
-                        except Exception:
-                            pushed_at_dt = datetime(1970, 1, 1)
-                        # To sort pushed_at descending, use timestamp multiplied by -1
-                        return -pushed_at_dt.timestamp()
-
-                    def sort_star_key(repo):
-                        return repo.get('stargazers_count', 0)
-
-                    filtered_repos = sorted(filtered_repos, key=sort_date_key)
-
-                    # Display list of filtered repositories as clickable items
-                    st.write("### 🔗 Matching Repositories")
-                    for repo in filtered_repos:
-                        repo_name = repo.get('name', 'Unnamed Repository')
-                        if st.button(repo_name):
-                            st.session_state['selected_repo'] = repo_name
-
-            with col2:
-                # Display selected repository details
-                selected_repo_name = st.session_state.get('selected_repo')
-                if selected_repo_name:
-                    selected_repo = next(
-                        (repo for repo in filtered_repos if repo.get('name') == selected_repo_name), 
-                        None
-                    )
-                    if selected_repo:
-                        show_repo(selected_repo)
-                else:
-                    st.info("Select a repository from the left to view details.")
-    else:
-        st.info("📥 Please upload a JSON file to proceed.")
+def launch_dashboard(json_path: str, port: int = 8501, host: str = 'localhost'):
+    """Launch the Streamlit dashboard with the specified JSON file"""
+    console.print(f"[green]Launching dashboard on {host}:{port}...")
+    
+    temp_script = """
+import streamlit as st
+from ghj.dash import DashboardApp
+app = DashboardApp()
+app.run('{json_path}')
+    """.format(json_path=json_path or '')
+    
+    temp_file = Path("temp_dashboard.py")
+    temp_file.write_text(temp_script)
+    
+    try:
+        subprocess.run([
+            "streamlit", "run",
+            str(temp_file),
+            "--server.port", str(port),
+            "--server.address", host
+        ])
+    finally:
+        temp_file.unlink()
 
 if __name__ == "__main__":
-    main()
+    import sys
+    if len(sys.argv) > 1:
+        launch_dashboard(sys.argv[1])
+    else:
+        print("Please provide a JSON file path")
