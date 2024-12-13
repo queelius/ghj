@@ -10,19 +10,16 @@ about the repositories.
 
 The `ghj` toolkit consists of several tools. Optionally, a GitHub personal access token for private repos and higher rate limits.
 
-- **GitHub Fetch User**: A Python script `gh_fetch_user.py` fetches user repositories from GitHub’s API and outputs their metadata as a JSON file. This tool:
-  - Fetches basic repo metadata and (optionally) extra metadata like README content, image URLs, etc. Particularly useful for generating project pages in static site generators like Hugo.
-    - Outputs JSON to standard output.
 - **Fetch User**: `ghj fetch user` fetches all the repository metadata for a particular user.
   - Fetches basic repo metadata and (optionally) extra metadata like contributors, README content, images, etc.
   - Outputs JSON to standard output.
 - **Fetch Repo**: `ghj fetch repo` fetches a single repository’s metadata.
   - Fetches basic repo metadata and (optionally) extra metadata like contributors, README content, images, etc.
   - Outputs JSON to standard output.
-- **Repo Sets**: `ghj diff`, `ghj merge`, `ghj intersect` for set-like operations on JSON files.
+- **Repo Sets**: `ghj sets diff`, `ghj sets union`, `ghj sets intersect` for set-like operations on JSON files.
   - Merging multiple JSON repos.
-  - Set-difference between two JSON repos, e.g., `ghj diff repo1.json repo2.json` to get repos in `repo1.json` but not in `repo2.json`.
-  - Intersection of two JSON repos, e.g., `ghj intersect repo1.json repo2.json` to get repos in both `repo1.json` and `repo2.json`.
+  - Set-difference between two JSON repos, e.g., `ghj diff repo1.json repo2.json repo3.json` to get repos in `repo1.json` but not in `repo2.json` and `repo3.json`.
+  - Intersection of two JSON repos, e.g., `ghj intersect repo1.json repo2.json repo3.json repo4.json` to get repos that are common to `repo1.json`, `repo2.json`, `repo3.json`, and `repo4.json`.
 - **Dashboard**: `ghj dash` is a dashboard for visualizing and querying the repository data.
   - A web-based dashboard for querying and visualizing the repository data.
   - Includes a Large Language Model (LLM) for asking questions about the repositories.

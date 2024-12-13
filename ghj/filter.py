@@ -34,6 +34,8 @@ def filter_repos(repos: List[Dict], query: str) -> List[Dict]:
         return [repo for repo in repos if jmespath.search(query, repo)]
     except jmespath.exceptions.JMESPathError as e:
         raise FilterError(f"Invalid query: {str(e)}")
+    except Exception as e:
+        raise FilterError(f"Error: {str(e)}")
 
 def print_examples():
     """Display common filter examples using rich console."""

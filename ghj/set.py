@@ -1,47 +1,119 @@
-from .utils import load_json, console
+from .utils import load_json, console, logger
 from typing import List, Dict
+import json
 
 # Example queries for documentation/help
 SET_EXAMPLES = [
-    ("Set Union", "ghj set union file1.json file2.json file3.json"),
-    ("Set Intersection", "ghj set intersect file1.json file2.json file3.json"),
+    ("Set Union", "ghj sets union file1.json file2.json file3.json"),
+    ("Set Intersection", "ghj sets intersect file1.json file2.json file3.json"),
     ("Set Difference", "ghj set diff file1.json file2.json file3.json"),
-    ("Piping commands", "ghj set union file1.json file2.json | ghj set diff - file3.json")
+    ("Piping commands", "ghj sets union file1.json file2.json | ghj set diff - file3.json")
 ]
 
+def remove_dups(repos: List[Dict]) -> List[Dict]:
+    """
+    Remove duplicate repositories from a list of repositories.
 
-def set_union(files: List[str]) -> List[Dict]:
-    sets = []
+    :param repos: List of repository dictionaries
+    :return: List of unique repositories
+    """
+    results = {}
+    for repo in repos:
+        results[repo['id']] = repo
+    return list(results.values())
+
+def set_union(repo_sets: List[Dict]) -> List[Dict]:
+    """
+    Get the union of multiple sets of repositories.
+
+    :param repo_sets: List of repository sets
+    :return: List of the union of all repositories
+    """
+    results = {}
+    for repo_set in repo_sets:
+        for repo in repo_set:
+            try:
+                results[repo['id']] = repo
+            except KeyError:
+                if 'name' in repo:
+                    logger.error(f"Repository ID not found in repo {repo.get('name', '')}")
+                else:
+                    logger.error(f"Repository ID not found in repo")
+            except Exception as e:
+                logger.error(f"Error adding repository to union: {str(e)}")
+    return list(results.values())
+
+def set_union_from_files(files: List[str]) -> List[Dict]:
+    """Get unique repositories from all files."""
+    repos = []
+    logger.debug(f"Computing union{files}")
     for file in files:
-        data = load_json(file)
-        repo_ids = {repo['id']: repo for repo in data}
-        sets.append(repo_ids)
+        try:
+            repos.extend(load_json(file))
+        except Exception as e:
+            logger.error(f"Error loading file: {str(e)}")
+        except FileNotFoundError as e:
+            logger.error(f"File not found: {str(e)}")
+        except json.JSONDecodeError as e:
+            logger.error(f"Invalid JSON file: {str(e)}")
+    return remove_dups(repos)
 
-    result = {}
-    for s in sets:
-        result.update(s)
-    return list(result.values())
+def set_interesect(repo_sets: List[Dict]) -> List[Dict]:
+    """
+    Get the intersection of multiple sets of repositories.
 
-def set_intersect(files: List[str]) -> List[Dict]:
+    :param repo_sets: List of repository sets
+    :return: List of the intersection of all repositories
+    """
     sets = []
-    data1 = load_json(files[0])
-    sets.append(set([repo['id'] for repo in data1]))
-    for file in files[1:]:
-        sets.append(set([repo['id'] for repo in load_json(file)]))
+    for repo_set in repo_sets:
+        try:
+            sets.append(set([repo['id'] for repo in repo_set]))
+        except KeyError:
+            if 'name' in repo_set:
+                logger.error(f"Repository ID not found in repo {repo_set.get('name', '')}")
+            else:
+                logger.error(f"Repository ID not found in repo")
+        except Exception as e:
+            logger.error(f"Error adding repository to intersection set: {str(e)}")
 
-    # Find common repo ids
     common_ids = sets[0].intersection(*sets[1:])
+    return [repo for repo in repo_sets[0] if repo['id'] in common_ids]
 
-    # Look at the first file to get the repos in common_ids
-    return [repo for repo in data1 if repo['id'] in common_ids]
+def set_intersect_from_files(files: List[str]) -> List[Dict]:
+    """
+    Get repositories common to all files.
+    """
+    repos = []
+    logger.debug(f"Computing intersection{files}")
+    for file in files:
+        try:
+            repos.append(load_json(file))
+        except Exception as e:
+            logger.error(f"Error loading file: {str(e)}")
+        except FileNotFoundError as e:
+            logger.error(f"File not found: {str(e)}")
+        except json.JSONDecodeError as e:
+            logger.error(f"Invalid JSON file: {str(e)}")
+    return set_interesect(repos)
 
-def set_diff(files: List[str]) -> List[Dict]:
-    data1 = load_json(files[0])
+def set_diff_from_files(files: List[str]) -> List[Dict]:
+    """
+    Get the difference between the first repo JSON file and the rest.
+    """
+    repos = []
+    for file in files:
+        repos.append(load_json(file))
+    return set_diff(repos)
+
+def set_diff(repo_sets: List[Dict]) -> List[Dict]:
+    """
+    Get the difference between the first set and the rest.
+    """
+    data1 = repo_sets[0]
     set2 = []
-    for file in files[1:]:
-        data = load_json(file)
-        set2.extend([repo['id'] for repo in data])
-        
+    for repo_set in repo_sets[1:]:
+        set2.extend([repo['id'] for repo in repo_set])
     return [repo for repo in data1 if repo['id'] not in set2]
 
 def print_examples():
