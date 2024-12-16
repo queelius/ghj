@@ -18,13 +18,15 @@ The `ghj` toolkit consists of several tools. Optionally, a GitHub personal acces
   - Outputs JSON to standard output.
 - **Repo Sets**: `ghj sets diff`, `ghj sets union`, `ghj sets intersect` for set-like operations on JSON files.
   - Merging multiple JSON repos.
-  - Set-difference between two JSON repos, e.g., `ghj diff repo1.json repo2.json repo3.json` to get repos in `repo1.json` but not in `repo2.json` and `repo3.json`.
-  - Intersection of two JSON repos, e.g., `ghj intersect repo1.json repo2.json repo3.json repo4.json` to get repos that are common to `repo1.json`, `repo2.json`, `repo3.json`, and `repo4.json`.
+  - Set-difference between JSON repos, e.g., `ghj diff repo1.json repo2.json repo3.json` to get repos in `repo1.json` but not in `repo2.json` and `repo3.json`.
+  - Intersection of JSON repos, e.g., `ghj intersect repo1.json repo2.json repo3.json repo4.json` to get repos that are common to `repo1.json`, `repo2.json`, `repo3.json`, and `repo4.json`.
 - **Dashboard**: `ghj dash` is a dashboard for visualizing and querying the repository data.
   - A web-based dashboard for querying and visualizing the repository data.
   - Includes a Large Language Model (LLM) for asking questions about the repositories.
-- **Filter**: `ghj filter` is a simple filter of repositories by language, stars, forks, etc.
-  - It uses *JMESPath* for querying the JSON data.
+- **Filter**: `ghj filter` is an advanced filter of repositories. See `jaf` (JSON Array FIlter),
+  - E.g., `ghj filter :starscount gt? 1000 AND forks gt? 100 AND (lower-case :owner.login) eq? alex` to filter repositories with stars greater than 1000, forks greater than 100, and owned by `alex` (case-insensitive).
+  - It  also supports a programmatic filter query based on nested lists:
+    - `['and', ['?gt', ['path', 'starscount'], 1000], ['gt?', ['path', 'forks'], 100], ['eq?', ['lower-case', ['path','owner.login'], 'alex']]`
 - **Stats**: `ghj stats` provides basic statistics about the repositories.
   - E.g., total number of repositories, average stars, forks, etc.
 - **Sort**: `ghj sort` sorts repositories by stars, forks, etc.
