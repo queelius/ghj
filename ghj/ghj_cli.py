@@ -234,17 +234,10 @@ def fetch_repo(repos: List[str],
     else:
         print(json.dumps(result, indent=2))
 
-@cli.group(invoke_without_command=True)
-@click.option("--examples", is_flag=True, help="Show set examples")
-@click.pass_context
-def sets(ctx, examples: bool):
-    """Perform set operations on repository JSON files"""
-    if ctx.invoked_subcommand is None:
-        if examples:
-            from .set import print_examples
-            print_examples()
-        else:
-            click.echo(ctx.get_help())
+@cli.group()
+def sets():
+    """Set operations on repositories"""
+    pass
 
 @sets.command(epilog=("Multiple files can be provided to take the difference of " \
                       "all repositories, e.g., `ghj sets diff file1.json " \
@@ -323,22 +316,13 @@ def intersect(files, output: Optional[str]):
     else:
         print(json.dumps(repos, indent=2))
 
-@cli.command(epilog="Use the --examples flag to see filter query examples")
+@cli.command()
 @click.argument("input_file", type=click.Path(exists=True), required=False)
-@click.option("--query", "-q", type=str, help="JMESPath query to filter repositories")
-@click.option("--examples", is_flag=True, help="Show filter examples")
-def filter(input_file: str, query: str, examples: bool):
+@click.argument("query", nargs=-1)
+def filter_old(input_file: str, query: List[str]):
     """Filter repositories using JMESPath queries"""
-    from ghj.filter import filter_repos, print_examples, FilterError
+    from ghj.filter_old import filter_repos, FilterError
     
-    if examples:
-        print_examples()
-        return
-
-    if not query:
-        console.print("[red]Error:[/red] Query required when not showing examples")
-        sys.exit(1)
-
     try:
         # Handle both file and stdin
         if input_file:
@@ -352,7 +336,7 @@ def filter(input_file: str, query: str, examples: bool):
         
         if isinstance(repos, dict):
             repos = [repos]
-            
+
         filtered = filter_repos(repos, query)
         print(json.dumps(filtered, indent=2))
             
@@ -361,6 +345,53 @@ def filter(input_file: str, query: str, examples: bool):
         sys.exit(1)
     except json.JSONDecodeError as e:
         console.print(f"[red]Invalid JSON:[/red] {str(e)}")
+        sys.exit(1)
+    except Exception as e:
+        console.print(f"[red]Error:[/red] {str(e)}")
+        sys.exit(1)
+
+# ghj_cli.py
+
+import click
+import json
+import sys
+from typing import Tuple
+from .filter import filter_repos, FilterError
+from .utils import console
+
+@cli.command()
+@click.argument("input_file", type=click.Path(exists=True), required=False)
+@click.argument("query", nargs=-1, required=True)
+def filter(input_file: str, query: Tuple[str, ...]) -> None:
+    """Filter repositories based on provided conditions.
+
+    Example:
+        ghj filter repos.json language == Python stargazers_count > 50
+        ghj filter repos.json language == Python || stargazers_count > 50
+    """
+    try:
+        # Handle input from file or stdin
+        if not input_file:
+            if sys.stdin.isatty():
+                console.print("[red]Error:[/red] No input provided", file=sys.stderr)
+                sys.exit(1)
+            repos = json.load(sys.stdin)
+        else:
+            with open(input_file) as f:
+                repos = json.load(f)
+        
+        # Ensure repos is a list
+        if isinstance(repos, dict):
+            repos = [repos]
+
+        # Apply filtering
+        filtered_repos = filter_repos(repos, query)
+        
+        # Output results
+        print(json.dumps(filtered_repos, indent=2))
+    
+    except FilterError as fe:
+        console.print(f"[red]Filter Error:[/red] {str(fe)}")
         sys.exit(1)
     except Exception as e:
         console.print(f"[red]Error:[/red] {str(e)}")
@@ -386,13 +417,42 @@ def dash(json_file, port: int, host: str):
 
 @cli.command()
 @click.argument("input_file", type=click.Path(exists=True))
+@click.option("--content-dir", default="content/projects", help="Hugo content directory")
+@click.option("--static-dir", default="static/images", help="Hugo static directory")
+@click.option("--download-images/--no-images", default=True, help="Download repository images")
+def hugo(input_file: str, content_dir: str, static_dir: str, download_images: bool):
+    """Generate Hugo content from repository data"""
+    from ghj.hugo import HugoRenderer
+    
+    with console.status("[bold green]Loading repository data..."):
+        with open(input_file) as f:
+            repos = json.load(f)
+            if isinstance(repos, dict):
+                repos = [repos]
+
+    renderer = HugoRenderer(
+        content_dir=content_dir,
+        static_dir=static_dir
+    )
+    
+    with console.status("[bold green]Generating Hugo content..."):
+        renderer.render_repos(repos, download_images=download_images)
+    
+    console.print("[bold green]✓[/bold green] Hugo content generation complete!")
+
+@cli.command()
+@click.argument("input_file", type=click.Path(exists=True))
 @click.option("--base-dir", default="content/projects", help="Hugo content directory")
 @click.option("--static-dir", default="static/images", help="Hugo static directory")
-def hugo(input_file: str, base_dir: str, static_dir: str):
+def hugo_old(input_file: str, base_dir: str, static_dir: str):
     """Generate Hugo content from repository data"""
+
+    from ghj.hugo_old import write_hugo_projects
+
     with console.status("[bold green]Generating Hugo content...") as status:
-        # TODO: Implement Hugo generation logic
-        pass
+        with open(input_file) as f:
+            repos = json.load(f)
+            write_hugo_projects(repos, base_dir=base_dir, static_dir=static_dir)
     console.print(f"[green]Successfully generated Hugo content in {base_dir}")
 
 def main():
