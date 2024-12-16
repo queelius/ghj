@@ -1,5 +1,7 @@
 # `ghj`: GitHub JSON
 
+NOTE: This is incomplete. Consider it an early alpha.
+
 This project provides a pipeline for fetching GitHub repository metadata as JSON
 along with a set of tools to filter, sort, query, merge, and render this data into a Hugo
 content. Additionally, it comes with a dashboard `ghj dash` to visualize and
