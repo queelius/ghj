@@ -1,6 +1,13 @@
-from typing import List, Dict
-from collections import Counter
+import pandas as pd
+from typing import Union, List, Dict
 import jmespath
+from tabulate import tabulate
+import json
+from collections import Counter
+from rich.console import Console
+from rich.table import Table
+from rich.panel import Panel
+from rich import box
 
 def get_statistics(repos: List[Dict]) -> Dict:
     """Calculate comprehensive statistics for GitHub repositories.
@@ -189,3 +196,47 @@ def get_statistics(repos: List[Dict]) -> Dict:
     })
 
     return result
+
+def display_main_metrics(stats: Dict, console: Console):
+    """Display main metrics in a table."""
+    main_metrics = {
+        key: value for key, value in stats.items()
+        if not isinstance(value, dict) and not isinstance(value, list) and key not in [
+            "languages", "topics", "licenses", "activity",
+            "owner_stats", "url_stats", "repo_characteristics",
+            "git_stats", "history", "contributors", "branches",
+            "collaboration"
+        ]
+    }
+
+    table = Table(title="Main Metrics", box=box.MINIMAL_DOUBLE_HEAD)
+    table.add_column("Metric", style="cyan", no_wrap=True)
+    table.add_column("Value", style="green")
+
+    for metric, value in main_metrics.items():
+        table.add_row(metric, str(value))
+    
+    console.print(table)
+
+def display_nested_metrics(title: str, data: Dict, console: Console):
+    """Display nested metrics in separate tables."""
+    table = Table(show_header=False, box=None)
+    table.add_column("Metric", style="magenta", no_wrap=True)
+    table.add_column("Details", style="yellow")
+
+    for metric, value in data.items():
+        if isinstance(value, dict):
+            # Convert dict to a formatted string
+            formatted = "\n".join(f"{k}: {v}" for k, v in value.items())
+        elif isinstance(value, list):
+            if all(isinstance(item, (list, tuple)) and len(item) == 2 for item in value):
+                # Assume list of tuples/lists for key-value pairs
+                formatted = "\n".join(f"{k}: {v}" for k, v in value)
+            else:
+                formatted = ", ".join(str(item) for item in value)
+        else:
+            formatted = str(value)
+        table.add_row(metric, formatted)
+    
+    panel = Panel(table, title=title, border_style="blue", padding=(1,2))
+    console.print(panel)

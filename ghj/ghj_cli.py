@@ -12,6 +12,8 @@ import click
 from .utils import console
 from .utils import logger
 from .fetch import GitHubFetcher
+from .stats import get_statistics, display_main_metrics, display_nested_metrics
+import jaf
 
 @click.group()
 @click.version_option(version="0.1.0")
@@ -91,14 +93,12 @@ def sort(input_file: str,
 @click.argument("input_file", required=False)
 @click.option("--output-json", is_flag=True, help="Output statistics as JSON")
 def stats(input_file: Union[str, List[Dict]], output_json: bool):
-    """Show statistics about the GitHub repositories"""
-    from .stats import get_statistics
+    """Show statistics about the GitHub repositories."""
     import sys
 
-    # Get repo data either from file, stdin, or passed object
-    repos = None
-    
     try:
+        repos = None
+
         if not input_file:
             if sys.stdin.isatty():
                 console.print("[red]Error:[/red] No input provided")
@@ -129,18 +129,28 @@ def stats(input_file: Union[str, List[Dict]], output_json: bool):
         if isinstance(repos, dict):
             repos = [repos]
 
-        # Calculate and output stats
+        # Calculate stats
         stats = get_statistics(repos)
         
         if output_json:
             print(json.dumps(stats, indent=2))
         else:
-            table = Table(title="GitHub Repository Statistics")
-            table.add_column("Metric", style="cyan")
-            table.add_column("Value", style="green")
-            for k, v in stats.items():
-                table.add_row(k, str(v))
-            console.print(table)
+            # Display Main Metrics
+            display_main_metrics(stats, console)
+            
+            # Display Nested Metrics
+            nested_categories = [
+                "languages", "topics", "licenses", "activity",
+                "owner_stats", "url_stats", "repo_characteristics",
+                "git_stats", "history", "contributors", "branches",
+                "collaboration"
+            ]
+            
+            for category in nested_categories:
+                data = stats.get(category, {})
+                if data:
+                    title = category.replace('_', ' ').title()
+                    display_nested_metrics(title, data, console)
 
     except Exception as e:
         console.print(f"[red]Error:[/red] {str(e)}")
@@ -154,7 +164,7 @@ def fetch():
 @fetch.command("users")
 @click.argument("usernames", nargs=-1, required=False)
 @click.option("--auth-token", envvar="GITHUB_TOKEN")
-@click.option("--extra/--no-extra", default=False)
+@click.option("--extra/--no-extra", default=True)
 @click.option("--public/--no-public", default=True)
 @click.option("--private/--no-private", default=False)
 @click.option("--output", "-o", help="Output file (defaults to stdout)")
@@ -318,57 +328,16 @@ def intersect(files, output: Optional[str]):
 
 @cli.command()
 @click.argument("input_file", type=click.Path(exists=True), required=False)
-@click.argument("query", nargs=-1)
-def filter_old(input_file: str, query: List[str]):
-    """Filter repositories using JMESPath queries"""
-    from ghj.filter_old import filter_repos, FilterError
-    
-    try:
-        # Handle both file and stdin
-        if input_file:
-            with open(input_file) as f:
-                repos = json.load(f)
-        else:
-            if sys.stdin.isatty():  # No pipe input
-                console.print("[red]Error:[/red] No input provided")
-                sys.exit(1)
-            repos = json.load(sys.stdin)
-        
-        if isinstance(repos, dict):
-            repos = [repos]
-
-        filtered = filter_repos(repos, query)
-        print(json.dumps(filtered, indent=2))
-            
-    except FilterError as e:
-        console.print(f"[red]Query Error:[/red] {str(e)}")
-        sys.exit(1)
-    except json.JSONDecodeError as e:
-        console.print(f"[red]Invalid JSON:[/red] {str(e)}")
-        sys.exit(1)
-    except Exception as e:
-        console.print(f"[red]Error:[/red] {str(e)}")
-        sys.exit(1)
-
-# ghj_cli.py
-
-import click
-import json
-import sys
-from typing import Tuple
-from .filter import filter_repos, FilterError
-from .utils import console
-
-@cli.command()
-@click.argument("input_file", type=click.Path(exists=True), required=False)
 @click.argument("query", nargs=-1, required=True)
 def filter(input_file: str, query: Tuple[str, ...]) -> None:
     """Filter repositories based on provided conditions.
 
     Example:
-        ghj filter repos.json language == Python stargazers_count > 50
-        ghj filter repos.json language == Python || stargazers_count > 50
+        ghj filter repos.json language eq? Python OR stargazers_count > 500
     """
+
+    import jaf
+
     try:
         # Handle input from file or stdin
         if not input_file:
@@ -384,14 +353,20 @@ def filter(input_file: str, query: Tuple[str, ...]) -> None:
         if isinstance(repos, dict):
             repos = [repos]
 
+        query = " ".join(query)
+        print(query)
+
+        ast_query = jaf.dsl.parse.parse_dsl(query)
+        print(ast_query)
+
         # Apply filtering
-        filtered_repos = filter_repos(repos, query)
+        filtered_repos = jaf.jaf(repos, ast_query)
         
         # Output results
         print(json.dumps(filtered_repos, indent=2))
     
-    except FilterError as fe:
-        console.print(f"[red]Filter Error:[/red] {str(fe)}")
+    except jaf.jafError as je:
+        console.print(f"[red]Filter Error:[/red] {str(je)}")
         sys.exit(1)
     except Exception as e:
         console.print(f"[red]Error:[/red] {str(e)}")
@@ -439,21 +414,6 @@ def hugo(input_file: str, content_dir: str, static_dir: str, download_images: bo
         renderer.render_repos(repos, download_images=download_images)
     
     console.print("[bold green]✓[/bold green] Hugo content generation complete!")
-
-@cli.command()
-@click.argument("input_file", type=click.Path(exists=True))
-@click.option("--base-dir", default="content/projects", help="Hugo content directory")
-@click.option("--static-dir", default="static/images", help="Hugo static directory")
-def hugo_old(input_file: str, base_dir: str, static_dir: str):
-    """Generate Hugo content from repository data"""
-
-    from ghj.hugo_old import write_hugo_projects
-
-    with console.status("[bold green]Generating Hugo content...") as status:
-        with open(input_file) as f:
-            repos = json.load(f)
-            write_hugo_projects(repos, base_dir=base_dir, static_dir=static_dir)
-    console.print(f"[green]Successfully generated Hugo content in {base_dir}")
 
 def main():
     """Main entry point for the ghj CLI"""

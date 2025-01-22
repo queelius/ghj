@@ -33,7 +33,7 @@ The `ghj` toolkit consists of several tools. Optionally, a GitHub personal acces
   - E.g., total number of repositories, average stars, forks, etc.
 - **Sort**: `ghj sort` sorts repositories by stars, forks, etc.
 - **LLM**: `ghj llm` for asking an LLM about the repositories.
-- **Hugo**: `ghj hugo`) takes the JSON file and converts each repository into a Hugo content page under `content/projects/`.
+- **Hugo**: `ghj hugo` takes the JSON file and converts each repository into a Hugo content page under `content/projects/`.
   - Optionally downloads a featured image for each repo if an image array `images` is contained in the JSON data for that repo.
   - Generates a `index.md` file with Hugo front matter, referencing the repo’s metadata, and places images in `static/images/<repo_name>/`.
   - Also supports a simple Markdown listing mode if you don’t want Hugo front matter.
