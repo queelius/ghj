@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-
+import sys
 import click
 import sys
 from rich.table import Table
@@ -13,7 +13,9 @@ from .utils import console
 from .utils import logger
 from .fetch import GitHubFetcher
 from .stats import get_statistics, display_main_metrics, display_nested_metrics
+from .set import set_diff_from_files
 import jaf
+
 
 @click.group()
 @click.version_option(version="0.1.0")
@@ -41,7 +43,20 @@ def sort(input_file: str,
          sort_by: Tuple[str],
          reverse: bool,
          limit: Optional[int]) -> None:
-    """Sort repositories by one or more keys."""
+    """
+    Sort repositories by one or more keys.
+
+    Example:
+        ghj sort repos.json -s stargazers_count -s name
+
+        This will sort repositories by stargazers_count first, then by name.
+
+    Args:
+        input_file (str): Input file with repositories
+        sort_by (Tuple[str]): Sort keys
+        reverse (bool): Reverse sort
+        limit (Optional[int]): Limit results
+    """
     try:
         # Handle input source
         if not input_file:
@@ -93,9 +108,13 @@ def sort(input_file: str,
 @click.argument("input_file", required=False)
 @click.option("--output-json", is_flag=True, help="Output statistics as JSON")
 def stats(input_file: Union[str, List[Dict]], output_json: bool):
-    """Show statistics about the GitHub repositories."""
-    import sys
+    """
+    Show statistics about the GitHub repositories.
 
+    Args:
+        input_file (Union[str, List[Dict]]): Input file or list of repositories
+        output_json (bool): Output as JSON
+    """
     try:
         repos = None
 
@@ -158,7 +177,9 @@ def stats(input_file: Union[str, List[Dict]], output_json: bool):
 
 @cli.group()
 def fetch():
-    """Fetch repository data from GitHub"""
+    """
+    Fetch repository data from GitHub
+    """
     pass
 
 @fetch.command("users")
@@ -176,7 +197,17 @@ def fetch_users(
     private: bool,
     output: Optional[str]
 ):
-    """Fetch repositories for GitHub users"""
+    """
+    Fetch repositories for GitHub users
+
+    Args:
+        usernames (List[str]): List of GitHub usernames
+        auth_token (Optional[str]): GitHub API token
+        extra (bool): Fetch extra data
+        public (bool): Fetch public repositories
+        private (bool): Fetch private repositories
+        output (Optional[str]): Output file
+    """
     fetcher = GitHubFetcher(auth_token)   
     try:
         # Handle both file and stdin
@@ -214,7 +245,15 @@ def fetch_repo(repos: List[str],
                auth_token: Optional[str],
                extra: bool,
                output: Optional[str]):
-    """Fetch a repository's data"""
+    """
+    Fetch a repository's data
+
+    Args:
+        repos (List[str]): List of repository names
+        auth_token (Optional[str]): GitHub API token
+        extra (bool): Fetch extra data
+        output (Optional[str]): Output file
+    """
     fetcher = GitHubFetcher(auth_token)
     
     try:
@@ -260,8 +299,6 @@ def sets():
 @click.option("-o", "--output", help="Output file (defaults to stdout)")
 def diff(files: List[str], output: Optional[str]):
     """Get repositories in the first file that are not in the others"""
-
-    from .set import set_diff_from_files
 
     if not files:
         console.print("[red]Error:[/red] No files provided")
@@ -336,8 +373,6 @@ def filter(input_file: str, query: Tuple[str, ...]) -> None:
         ghj filter repos.json language eq? Python OR stargazers_count > 500
     """
 
-    import jaf
-
     try:
         # Handle input from file or stdin
         if not input_file:
@@ -357,13 +392,13 @@ def filter(input_file: str, query: Tuple[str, ...]) -> None:
         print(query)
 
         ast_query = jaf.dsl.parse.parse_dsl(query)
-        print(ast_query)
+        console.print(ast_query)
 
         # Apply filtering
         filtered_repos = jaf.jaf(repos, ast_query)
         
         # Output results
-        print(json.dumps(filtered_repos, indent=2))
+        console.print(json.dumps(filtered_repos, indent=2))
     
     except jaf.jafError as je:
         console.print(f"[red]Filter Error:[/red] {str(je)}")
@@ -378,7 +413,14 @@ def filter(input_file: str, query: Tuple[str, ...]) -> None:
 @click.option('--host', default='localhost', 
               help='Host to run dashboard on. Use 0.0.0.0 for network access')
 def dash(json_file, port: int, host: str):
-    """Launch the repository dashboard"""
+    """
+    Launch the repository dashboard
+
+    Args:
+        json_file (str): JSON file with repository data
+        port (int): Port to run dashboard on
+        host (str): Host to run dashboard on
+    """
     from ghj.dash import launch_dashboard
 
     if host != 'localhost':
@@ -396,7 +438,15 @@ def dash(json_file, port: int, host: str):
 @click.option("--static-dir", default="static/images", help="Hugo static directory")
 @click.option("--download-images/--no-images", default=True, help="Download repository images")
 def hugo(input_file: str, content_dir: str, static_dir: str, download_images: bool):
-    """Generate Hugo content from repository data"""
+    """
+    Generate Hugo content from repository data
+
+    Args:
+        input_file (str): Input file with repository data
+        content_dir (str): Hugo content directory
+        static_dir (str): Hugo static directory
+        download_images (bool): Download repository images
+    """
     from ghj.hugo import HugoRenderer
     
     with console.status("[bold green]Loading repository data..."):

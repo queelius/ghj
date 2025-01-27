@@ -57,11 +57,15 @@ class DashboardApp:
         with st.expander("View Repository Details"):
             st.json(repo)
         
-        if 'readme_content' in repo:
-            st.markdown("### README")
-            st.markdown(repo['readme_content'])
+        if 'readme' in repo:
+            with st.expander("View Repository Readme"):
+                st.markdown(repo['readme'])
 
-    def filter_repos(self, repos: List[Dict], search_query: str, field: str, value: str) -> List[Dict]:
+    def filter_repos(self,
+                     repos: List[Dict],
+                     search_query: str,
+                     field: str,
+                     value: str) -> List[Dict]:
         filtered = repos
         if search_query:
             filtered = [
@@ -111,19 +115,20 @@ class DashboardApp:
             search_query = st.text_input("Search repositories:").lower()
             
             # Filter controls
-            field_options = ['name', 'language', 'stargazers_count', 'forks_count']
+            field_options = ['none', 'name', 'language', 'stargazers_count', 'forks_count']
             selected_field = st.selectbox("Filter by field:", field_options)
             
-            # Get unique values for selected field
-            unique_values = set(str(repo.get(selected_field, '')) 
-                              for repo in repos if repo.get(selected_field))
-            if unique_values:
-                filter_value = st.selectbox(
-                    f"Select {selected_field}:",
-                    sorted(unique_values)
-                )
-            else:
-                filter_value = None
+            if selected_field != 'none':
+                # Get unique values for selected field
+                unique_values = set(str(repo.get(selected_field, '')) 
+                                for repo in repos if repo.get(selected_field))
+                if unique_values:
+                    filter_value = st.selectbox(
+                        f"Select {selected_field}:",
+                        sorted(unique_values)
+                    )
+                else:
+                    filter_value = None
 
             # Sort options
             sort_by = st.selectbox(
@@ -133,7 +138,10 @@ class DashboardApp:
             sort_order = st.radio("Order:", ["Descending", "Ascending"])
 
         # Filter and sort repositories
-        filtered_repos = self.filter_repos(repos, search_query, selected_field, filter_value)
+        if selected_field == 'none':
+            filtered_repos = repos
+        else:
+            filtered_repos = self.filter_repos(repos, search_query, selected_field, filter_value)
         
         # Sort repositories
         filtered_repos.sort(
@@ -148,7 +156,14 @@ class DashboardApp:
                 self.display_repo_details(repo)
 
 def launch_dashboard(json_path: str, port: int = 8501, host: str = 'localhost'):
-    """Launch the Streamlit dashboard with the specified JSON file"""
+    """
+    Launch the Streamlit dashboard with the specified JSON file
+
+    Args:
+        json_path (str): Path to the JSON file containing GitHub repository data
+        port (int): Port number for the Streamlit server
+        host (str): Host address for the Streamlit server
+    """
     console.print(f"[green]Launching dashboard on {host}:{port}...")
     
     temp_script = """
