@@ -2,18 +2,18 @@
 import sys
 import click
 import sys
-from rich.table import Table
+#from rich.table import Table
 from rich.panel import Panel
-from rich.logging import RichHandler
+#from rich.logging import RichHandler
 import json
 from typing import Optional, List, Dict, Union, Tuple, Any
 #from pathlib import Path
 import click
-from .utils import console
-from .utils import logger
+from .utils import console, logger
 from .fetch import GitHubFetcher
 from .stats import get_statistics, display_main_metrics, display_nested_metrics
 from .set import set_diff_from_files
+from .hugo import HugoRenderer
 import jaf
 
 
@@ -436,7 +436,7 @@ def dash(json_file, port: int, host: str):
 @click.argument("input_file", type=click.Path(exists=True))
 @click.option("--content-dir", default="content/projects", help="Hugo content directory")
 @click.option("--static-dir", default="static/images", help="Hugo static directory")
-@click.option("--download-images/--no-images", default=True, help="Download repository images")
+@click.option("--download-images/--no-download-images", default=True, help="Download repository images")
 def hugo(input_file: str, content_dir: str, static_dir: str, download_images: bool):
     """
     Generate Hugo content from repository data
@@ -447,7 +447,6 @@ def hugo(input_file: str, content_dir: str, static_dir: str, download_images: bo
         static_dir (str): Hugo static directory
         download_images (bool): Download repository images
     """
-    from ghj.hugo import HugoRenderer
     
     with console.status("[bold green]Loading repository data..."):
         with open(input_file) as f:
