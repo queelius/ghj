@@ -1,3 +1,44 @@
 [build-system]
 requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
+
+[project]
+name = "gh-json"
+version = "0.2.0"
+authors = [
+    { name = "Alex Towell", email = "lex@metafunctor.com" },
+]
+description = "A toolkit to work with GitHub repositories, generating JSON data and more"
+readme = "README.md"
+requires-python = ">=3.6"
+license = { text = "MIT" }
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "click>=8.0.0",
+    "rich>=10.0.0",
+    "requests",
+    "pyyaml", # Canonical name for PyYAML
+    "jmespath",
+    "streamlit",
+    "jaf",
+    "aiohttp",
+    "tabulate",
+    "rapidfuzz",
+]
+
+[project.urls]
+Homepage = "https://github.com/queelius/ghj"
+
+[project.scripts]
+ghj = "ghj.ghj_cli:main"
+
+# If you need to explicitly tell setuptools to find packages,
+# you can add this, but often it's not needed for simple layouts.
+# [tool.setuptools.packages.find]
+# where = ["."] # or your source directory e.g., "src"
+# include = ["ghj*"]
+# exclude = ["tests*"]

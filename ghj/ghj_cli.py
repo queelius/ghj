@@ -1,69 +1,225 @@
 #!/usr/bin/env python3
 import sys
-import click
-import sys
-from rich.table import Table
+import argparse
+import json
+from typing import Optional, List, Dict, Any, Tuple
+
+from rich.console import Console
 from rich.panel import Panel
 from rich.logging import RichHandler
-import json
-from typing import Optional, List, Dict, Union, Tuple, Any
-#from pathlib import Path
-import click
-from .utils import console
-from .utils import logger
+
+import os
+
+# Import your internal modules
+from .utils import console, logger
 from .fetch import GitHubFetcher
 from .stats import get_statistics, display_main_metrics, display_nested_metrics
-from .set import set_diff_from_files
+from .set import set_diff_from_files, set_union_from_files, set_intersect_from_files
 import jaf
 
+def main():
+    parser = argparse.ArgumentParser(
+        prog="ghj",
+        description="GitHub JSON (ghj) - A toolkit for working with GitHub repository metadata",
+        epilog="""Examples:
+  ghj sort repos.json -s stargazers_count -s name
+  ghj fetch users octocat torvalds
+  ghj sets diff file1.json file2.json file3.json
+  ghj filter repos.json language eq? Python OR stargazers_count > 500
+""",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument("--log-level", default="INFO", help="Set logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)")
 
-@click.group()
-@click.version_option(version="0.1.0")
-@click.option('--log-level', 
-              type=click.Choice(['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'], 
-              case_sensitive=False),
-              envvar='GHJ_LOG_LEVEL',
-              default='INFO',
-              help='Set logging level')
-def cli(log_level: str):
-    """GitHub JSON (ghj) - A toolkit for working with GitHub repository metadata"""
-    logger.setLevel(log_level.upper())
+    subparsers = parser.add_subparsers(dest="command", required=True)
 
-@cli.command(epilog="If no input file is provided, reads from stdin, which can " \
-                     "be either a JSON object or a filename (useful for piping). " \
-                     "Multiple sort keys can be provided, and the order of keys " \
-                     "determines the sort priority, e.g., `ghj sort repo.json -s " \
-                     "stargazers_count -s name` will sort by stargazers_count " \
-                     "first, then by name.")
-@click.argument("input_file", type=click.Path(exists=True), required=False)
-@click.option("--sort-by", "-s", multiple=True, help="Sort keys (multiple allowed). Default is stargazers_count")
-@click.option("--reverse/--no-reverse", "-r/", default=False, help="Reverse sort")
-@click.option("--limit", "-l", type=int, help="Limit results")
-def sort(input_file: str,
-         sort_by: Tuple[str],
-         reverse: bool,
-         limit: Optional[int]) -> None:
-    """
-    Sort repositories by one or more keys.
+    # --- sort command ---
+    sort_parser = subparsers.add_parser(
+        "sort",
+        help="Sort repositories by one or more keys",
+        epilog="""If no input file is provided, reads from stdin, which can be either a JSON object or a filename.
+Multiple sort keys can be provided; their order determines priority.
+Example:
+  ghj sort repos.json -s stargazers_count -s name
+""",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    sort_parser.add_argument("input_file", nargs="?", help="Input file with repositories")
+    sort_parser.add_argument("-s", "--sort-by", action="append", default=[], help="Sort keys (multiple allowed). Default is stargazers_count")
+    sort_parser.add_argument("-r", "--reverse", action="store_true", help="Reverse sort")
+    sort_parser.add_argument("-l", "--limit", type=int, help="Limit results")
+    sort_parser.set_defaults(func=handle_sort)
 
-    Example:
-        ghj sort repos.json -s stargazers_count -s name
+    # --- stats command ---
+    stats_parser = subparsers.add_parser(
+        "stats",
+        help="Show statistics about the GitHub repositories",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    stats_parser.add_argument("input_file", nargs="?", help="Input file or list of repositories (JSON)")
+    stats_parser.add_argument("--json", action="store_true", help="Output statistics as JSON")
+    stats_parser.set_defaults(func=handle_stats)
 
-        This will sort repositories by stargazers_count first, then by name.
+    # --- fetch group ---
+    fetch_parser = subparsers.add_parser(
+        "fetch",
+        help="Fetch repository data from GitHub",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    fetch_subparsers = fetch_parser.add_subparsers(dest="subcommand", required=True)
 
-    Args:
-        input_file (str): Input file with repositories
-        sort_by (Tuple[str]): Sort keys
-        reverse (bool): Reverse sort
-        limit (Optional[int]): Limit results
-    """
+    # fetch users
+    fetch_users_parser = fetch_subparsers.add_parser(
+        "users",
+        help="Fetch repositories for GitHub users",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""Examples:
+  ghj fetch users torvalds octocat
+  echo "torvalds guido" | ghj fetch users
+"""
+    )
+
+    fetch_users_parser.add_argument("usernames", nargs="*", help="List of GitHub usernames")
+    
+    # let's by default fetch from environment variable GITHUB_TOKEN
+    fetch_users_parser.add_argument("--auth-token", help="GitHub API token (or set GITHUB_TOKEN env var)",
+                                    default=os.environ.get("GITHUB_TOKEN"))
+    # Using mutually exclusive options for extra
+    extra_group = fetch_users_parser.add_mutually_exclusive_group()
+    extra_group.add_argument("--extra", dest="extra", action="store_true", default=True, help="Fetch extra data")
+    extra_group.add_argument("--no-extra", dest="extra", action="store_false", help="Do not fetch extra data")
+    public_group = fetch_users_parser.add_mutually_exclusive_group()
+    public_group.add_argument("--public", dest="public", action="store_true", default=True, help="Fetch public repositories")
+    public_group.add_argument("--no-public", dest="public", action="store_false", help="Do not fetch public repositories")
+    fetch_users_parser.add_argument("--private", action="store_true", default=False, help="Fetch private repositories")
+    fetch_users_parser.add_argument("-o", "--output", help="Output file (defaults to stdout)")
+    fetch_users_parser.set_defaults(func=handle_fetch_users)
+
+    # fetch repos
+    fetch_repos_parser = fetch_subparsers.add_parser(
+        "repos",
+        help="Fetch a repository's data",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""Example:
+  ghj fetch repos owner1/repo1 owner2/repo2
+"""
+    )
+    fetch_repos_parser.add_argument("repos", nargs="*", help="Repository names (e.g., owner/repo)")
+    fetch_repos_parser.add_argument("--auth-token", help="GitHub API token")
+    fetch_repos_parser.add_argument("--extra", action="store_true", default=False, help="Fetch extra data")
+    fetch_repos_parser.add_argument("-o", "--output", help="Output file (defaults to stdout)")
+    fetch_repos_parser.set_defaults(func=handle_fetch_repos)
+
+    # --- sets group ---
+    sets_parser = subparsers.add_parser(
+        "sets",
+        help="Set operations on repositories",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    sets_subparsers = sets_parser.add_subparsers(dest="subcommand", required=True)
+
+    # sets diff
+    diff_parser = sets_subparsers.add_parser(
+        "diff",
+        help="Get repositories in the first file that are not in the others",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""Example:
+  ghj sets diff file1.json file2.json file3.json
+  cat repos.txt | ghj sets diff
+"""
+    )
+    diff_parser.add_argument("files", nargs="+", help="List of repository JSON files")
+    diff_parser.add_argument("-o", "--output", help="Output file (defaults to stdout)")
+    diff_parser.set_defaults(func=handle_sets_diff)
+
+    # sets union
+    union_parser = sets_subparsers.add_parser(
+        "union",
+        help="Get unique repositories from multiple files",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""Example:
+  ghj sets union file1.json file2.json file3.json
+  cat repos.txt | ghj sets union
+"""
+    )
+    union_parser.add_argument("files", nargs="+", help="List of repository JSON files")
+    union_parser.add_argument("-o", "--output", help="Output file (defaults to stdout)")
+    union_parser.set_defaults(func=handle_sets_union)
+
+    # sets intersect
+    intersect_parser = sets_subparsers.add_parser(
+        "intersect",
+        help="Get repositories common to all files",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""Example:
+  ghj sets intersect file1.json file2.json file3.json
+  cat repos.txt | ghj sets intersect
+"""
+    )
+    intersect_parser.add_argument("files", nargs="+", help="List of repository JSON files")
+    intersect_parser.add_argument("-o", "--output", help="Output file (defaults to stdout)")
+    intersect_parser.set_defaults(func=handle_sets_intersect)
+
+    # --- filter command ---
+    filter_parser = subparsers.add_parser(
+        "filter",
+        help="Filter repositories based on provided conditions",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""Example:
+  ghj filter repos.json language eq? Python OR stargazers_count > 500
+"""
+    )
+    filter_parser.add_argument("input_file", nargs="?", help="Input JSON file with repositories")
+    filter_parser.add_argument("query", nargs="+", help="Query string for filtering")
+    filter_parser.set_defaults(func=handle_filter)
+
+    # --- dash command ---
+    dash_parser = subparsers.add_parser(
+        "dash",
+        help="Launch the repository dashboard",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""Example:
+  ghj dash repos.json --port 8501 --host 0.0.0.0
+"""
+    )
+    dash_parser.add_argument("json_file", nargs="?", help="JSON file with repository data")
+    dash_parser.add_argument("--port", "-p", type=int, default=8501, help="Port to run dashboard on")
+    dash_parser.add_argument("--host", default="localhost", help="Host to run dashboard on (use 0.0.0.0 for network access)")
+    dash_parser.set_defaults(func=handle_dash)
+
+    # --- hugo command ---
+    hugo_parser = subparsers.add_parser(
+        "hugo",
+        help="Generate Hugo content from repository data",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""Example:
+  ghj hugo repos.json --content-dir content/projects --static-dir static/images --download-images
+"""
+    )
+    hugo_parser.add_argument("input_file", help="Input JSON file with repository data")
+    hugo_parser.add_argument("--content-dir", default="content/projects", help="Hugo content directory")
+    hugo_parser.add_argument("--static-dir", default="static/images", help="Hugo static directory")
+    hugo_parser.add_argument("--download-images", dest="download_images", action="store_true", default=True, help="Download repository images")
+    hugo_parser.add_argument("--no-images", dest="download_images", action="store_false", help="Do not download repository images")
+    hugo_parser.set_defaults(func=handle_hugo)
+
+    # Parse arguments and dispatch
+    args = parser.parse_args()
+    logger.setLevel(args.log_level.upper())
+    args.func(args)
+
+
+# -------------------------
+# HANDLER FUNCTIONS BELOW
+# -------------------------
+
+def handle_sort(args):
     try:
-        # Handle input source
-        if not input_file:
+        # Input source: file or stdin
+        if not args.input_file:
             if sys.stdin.isatty():
-                console.print("[red]Error:[/red] No input provided", file=sys.stderr)
+                console.print("[red]Error:[/red] No input provided", style="red")
                 sys.exit(1)
-            
             data = sys.stdin.read().strip()
             try:
                 repos = json.loads(data)
@@ -71,407 +227,231 @@ def sort(input_file: str,
                 with open(data) as f:
                     repos = json.load(f)
         else:
-            with open(input_file) as f:
+            with open(args.input_file) as f:
                 repos = json.load(f)
 
-        # Default to name if no sort keys
-        if not sort_by:
-            sort_by = ('stargazers_count',)
+        # Default sort key if none provided
+        sort_keys = args.sort_by or ['stargazers_count']
 
-        # Sort by multiple keys
         def get_sort_key(repo: Dict) -> Tuple:
             def get_nested_value(obj: Dict, key: str) -> Any:
                 for part in key.split('.'):
                     if not isinstance(obj, dict):
                         return None
                     val = obj.get(part)
-                    # Convert to comparable types
-                    if isinstance(val, (int, float)):
-                        return val
-                    return str(val) if val is not None else ''
+                    return val if isinstance(val, (int, float)) else str(val) if val is not None else ''
                 return obj
-            
-            return tuple(get_nested_value(repo, key) for key in sort_by)
+            return tuple(get_nested_value(repo, key) for key in sort_keys)
 
-        repos = sorted(repos, key=get_sort_key, reverse=reverse)
+        repos = sorted(repos, key=get_sort_key, reverse=args.reverse)
+        if args.limit:
+            repos = repos[:args.limit]
 
-        if limit:
-            repos = repos[:limit]
-
-        print(json.dumps(repos, indent=2))
-
+        repos = json.dumps(repos, indent=2, ensure_ascii=True)
+        from rich.json import JSON
+        console.print(JSON(repos))
     except Exception as e:
-        console.print(f"[red]Error:[/red] {str(e)}", file=sys.stderr)
+        console.print(f"[red]Error:[/red] {str(e)}", style="red")
         sys.exit(1)
 
-@cli.command("stats")
-@click.argument("input_file", required=False)
-@click.option("--output-json", is_flag=True, help="Output statistics as JSON")
-def stats(input_file: Union[str, List[Dict]], output_json: bool):
-    """
-    Show statistics about the GitHub repositories.
 
-    Args:
-        input_file (Union[str, List[Dict]]): Input file or list of repositories
-        output_json (bool): Output as JSON
-    """
+def handle_stats(args):
     try:
-        repos = None
-
-        if not input_file:
+        if not args.input_file:
             if sys.stdin.isatty():
-                console.print("[red]Error:[/red] No input provided")
+                console.print("[red]Error:[/red] No input provided", style="red")
                 sys.exit(1)
-                
-            # Try parsing stdin as JSON first
             data = sys.stdin.read().strip()
             try:
                 repos = json.loads(data)
             except json.JSONDecodeError:
-                # If not JSON, try as filename
-                try:
-                    with open(data) as f:
-                        repos = json.load(f)
-                except (FileNotFoundError, json.JSONDecodeError):
-                    console.print("[red]Error:[/red] Invalid input - not JSON or valid filename", file=sys.stderr)
-                    sys.exit(1)
-        else:
-            # Direct file input
-            try:
-                with open(input_file) as f:
+                with open(data) as f:
                     repos = json.load(f)
-            except (FileNotFoundError, json.JSONDecodeError) as e:
-                console.print(f"[red]Error:[/red] Failed to load {input_file}: {str(e)}")
-                sys.exit(1)
-
-        # Ensure we have a list of repos
+        else:
+            with open(args.input_file) as f:
+                repos = json.load(f)
         if isinstance(repos, dict):
             repos = [repos]
 
-        # Calculate stats
         stats = get_statistics(repos)
-        
-        if output_json:
+        if args.json:
             print(json.dumps(stats, indent=2))
         else:
-            # Display Main Metrics
             display_main_metrics(stats, console)
-            
-            # Display Nested Metrics
-            nested_categories = [
+            for category in [
                 "languages", "topics", "licenses", "activity",
                 "owner_stats", "url_stats", "repo_characteristics",
-                "git_stats", "history", "contributors", "branches",
-                "collaboration"
-            ]
-            
-            for category in nested_categories:
+                "git_stats", "history", "contributors", "branches", "collaboration"
+            ]:
                 data = stats.get(category, {})
                 if data:
-                    title = category.replace('_', ' ').title()
-                    display_nested_metrics(title, data, console)
-
+                    display_nested_metrics(category.replace('_', ' ').title(), data, console)
     except Exception as e:
-        console.print(f"[red]Error:[/red] {str(e)}")
+        console.print(f"[red]Error:[/red] {str(e)}", style="red")
         sys.exit(1)
 
-@cli.group()
-def fetch():
-    """
-    Fetch repository data from GitHub
-    """
-    pass
 
-@fetch.command("users")
-@click.argument("usernames", nargs=-1, required=False)
-@click.option("--auth-token", envvar="GITHUB_TOKEN")
-@click.option("--extra/--no-extra", default=True)
-@click.option("--public/--no-public", default=True)
-@click.option("--private/--no-private", default=False)
-@click.option("--output", "-o", help="Output file (defaults to stdout)")
-def fetch_users(
-    usernames: List[str],
-    auth_token: Optional[str],
-    extra: bool,
-    public: bool,
-    private: bool,
-    output: Optional[str]
-):
-    """
-    Fetch repositories for GitHub users
-
-    Args:
-        usernames (List[str]): List of GitHub usernames
-        auth_token (Optional[str]): GitHub API token
-        extra (bool): Fetch extra data
-        public (bool): Fetch public repositories
-        private (bool): Fetch private repositories
-        output (Optional[str]): Output file
-    """
-    fetcher = GitHubFetcher(auth_token)   
+def handle_fetch_users(args):
     try:
-        # Handle both file and stdin
+        fetcher = GitHubFetcher(args.auth_token)
+        # If no usernames provided, try reading from stdin
+        usernames = args.usernames or (sys.stdin.read().strip().split() if not sys.stdin.isatty() else [])
         if not usernames:
-            if sys.stdin.isatty():  # No pipe input
-                console.print("[red]Error:[/red] No input provided")
-                sys.exit(1)
-            usernames = sys.stdin.read().strip().split()
-    except Exception as e:
-        console.print(f"[red]Error:[/red] {str(e)}")
-        sys.exit(1)
-
-    with console.status(f"Fetching user repos..."):
-        results = fetcher.user_repos(
-            usernames,
-            fetch_public=public,
-            fetch_private=private,
-            extra=extra
-    )
-    console.print(Panel(f"[green]Successfully fetched {len(results)} repositories for {usernames}"))
-
-    if output:
-        with open(output, "w") as f:
-            json.dump(results, f, indent=2)
-        console.print(f"[green]Successfully wrote repositories to {output}")
-    else:
-        print(json.dumps(results, indent=2))
-
-@fetch.command("repos")
-@click.argument("repos", nargs=-1, required=False)
-@click.option("--auth-token", envvar="GITHUB_TOKEN")
-@click.option("--extra/--no-extra", default=False)
-@click.option("--output", "-o", help="Output file (defaults to stdout)")
-def fetch_repo(repos: List[str],
-               auth_token: Optional[str],
-               extra: bool,
-               output: Optional[str]):
-    """
-    Fetch a repository's data
-
-    Args:
-        repos (List[str]): List of repository names
-        auth_token (Optional[str]): GitHub API token
-        extra (bool): Fetch extra data
-        output (Optional[str]): Output file
-    """
-    fetcher = GitHubFetcher(auth_token)
-    
-    try:
-        # Handle both file and stdin
-        if repos:
-            repos = list(repos)
+            console.print("[red]Error:[/red] No usernames provided", style="red")
+            sys.exit(1)
+        with console.status("Fetching user repos..."):
+            results = fetcher.user_repos(
+                usernames,
+                fetch_public=args.public,
+                fetch_private=args.private,
+                extra=args.extra,
+            )
+        console.print(Panel(f"[green]Successfully fetched {len(results)} repositories for {usernames}"))
+        if args.output:
+            with open(args.output, "w") as f:
+                json.dump(results, f, indent=2)
         else:
-            if sys.stdin.isatty():  # No pipe input
-                console.print("[red]Error:[/red] No input provided")
-                sys.exit(1)
-            repos = sys.stdin.read().strip().split()
-    except json.JSONDecodeError as e:
-        console.print(f"[red]Invalid JSON:[/red] {str(e)}")
-        sys.exit(1)
+            print(json.dumps(results, indent=2))
     except Exception as e:
-        console.print(f"[red]Error:[/red] {str(e)}")
+        console.print(f"[red]Error:[/red] {str(e)}", style="red")
         sys.exit(1)
 
-    with console.status(f"Fetching repos..."):
-        result = fetcher.repos(repos, extra=extra)
-        console.print(f"[green]Successfully fetched {len(result)} out of {len(repos)} repositories")
 
-    if output:
-        with open(output, "w") as f:
-            json.dump(result, f, indent=2)
-        console.print(f"[green]Successfully wrote repository data to {output}")
-    else:
-        print(json.dumps(result, indent=2))
-
-@cli.group()
-def sets():
-    """Set operations on repositories"""
-    pass
-
-@sets.command(epilog=("Multiple files can be provided to take the difference of " \
-                      "all repositories, e.g., `ghj sets diff file1.json " \
-                      "file2.json file3.json` will take the set-difference of " \
-                      "the first file from the rest. Standard input is also " \
-                      "supported, e.g., `cat repos.txt | ghj sets diff` will " \
-                      "read from `repos.txt` a list of filenames and take the " \
-                      "set-difference of all repositories in that file."))
-@click.argument("files", nargs=-1)
-@click.option("-o", "--output", help="Output file (defaults to stdout)")
-def diff(files: List[str], output: Optional[str]):
-    """Get repositories in the first file that are not in the others"""
-
-    if not files:
-        console.print("[red]Error:[/red] No files provided")
-        sys.exit(1)
-
-    with console.status("Taking [bold green]set-difference[/bold green] of first file from the rest..."):
-        repos = set_diff_from_files(files)
-
-    if output:
-        with open(output, "w") as f:
-            json.dump(repos, f, indent=2)
-        console.print(f"[green]Successfully wrote difference to {output}")
-    else:
-        print(json.dumps(repos, indent=2))
-
-@sets.command(epilog="Multiple files can be provided to take the union of all " \
-                     "repositories, e.g., `ghj sets union file1.json file2.json " \
-                     "file3.json` will take the union of all repositories in the " \
-                     "three files. Standard input is also supported, e.g., " \
-                     "`cat repos.txt | ghj sets union` will read from `repos.txt` " \
-                     "a list of filenames and take the union of all repositories " \
-                     "in that files.")
-@click.argument("files", nargs=-1)
-@click.option("-o", "--output", help="Output file (defaults to stdout)")
-def union(files, output: Optional[str]):
-    """Get unique repositories from both files"""
-
-    from .set import set_union_from_files
-
-    if not files:
-        console.print("[red]Error:[/red] No files provided")
-        sys.exit(1)
-
-    with console.status("Taking [bold green]union[/bold green] of repositories..."):
-        repos = set_union_from_files(files)
-
-    if output:
-        with open(output, "w") as f:
-            json.dump(repos, f, indent=2)
-        console.print(f"[green]Successfully wrote merged repositories to {output}")
-    else:
-        print(json.dumps(repos, indent=2))
-
-@sets.command(epilog="Multiple files can be provided to take the intersection of all repositories, e.g., `ghj sets intersect file1.json file2.json file3.json` will take the intersection of all repositories in the three files. Standard input is also supported, e.g., `cat repos.txt | ghj sets intersect` will read from `repos.txt` a list of filenames and take the intersection of all repositories in that file.")
-@click.argument("files", nargs=-1)
-@click.option("-o", "--output", help="Output file (defaults to stdout)")
-def intersect(files, output: Optional[str]):
-    """Get repositories common to all files"""
-
-    if not files:
-        console.print("[red]Error:[/red] No files provided")
-        sys.exit(1)
-
-    from .set import set_intersect_from_files
-    with console.status("Taking [bold green]intersection[/bold green] of repositories..."):
-        repos = set_intersect_from_files(files)
-
-    if output:
-        with open(output, "w") as f:
-            json.dump(repos, f, indent=2)
-        console.print(f"[green]Successfully wrote intersection to {output}")
-    else:
-        print(json.dumps(repos, indent=2))
-
-@cli.command()
-@click.argument("input_file", type=click.Path(exists=True), required=False)
-@click.argument("query", nargs=-1, required=True)
-def filter(input_file: str, query: Tuple[str, ...]) -> None:
-    """Filter repositories based on provided conditions.
-
-    Example:
-        ghj filter repos.json language eq? Python OR stargazers_count > 500
-    """
-
+def handle_fetch_repos(args):
     try:
-        # Handle input from file or stdin
-        if not input_file:
+        fetcher = GitHubFetcher(args.auth_token)
+        repos = args.repos or (sys.stdin.read().strip().split() if not sys.stdin.isatty() else [])
+        if not repos:
+            console.print("[red]Error:[/red] No repository names provided", style="red")
+            sys.exit(1)
+        with console.status("Fetching repositories..."):
+            result = fetcher.repos(repos, extra=args.extra)
+        console.print(f"[green]Successfully fetched {len(result)} out of {len(repos)} repositories")
+        if args.output:
+            with open(args.output, "w") as f:
+                json.dump(result, f, indent=2)
+        else:
+            print(json.dumps(result, indent=2))
+    except Exception as e:
+        console.print(f"[red]Error:[/red] {str(e)}", style="red")
+        sys.exit(1)
+
+
+def handle_sets_diff(args):
+    try:
+        if not args.files:
+            console.print("[red]Error:[/red] No files provided", style="red")
+            sys.exit(1)
+        with console.status("Taking set-difference of first file from the rest..."):
+            repos = set_diff_from_files(args.files)
+        if args.output:
+            with open(args.output, "w") as f:
+                json.dump(repos, f, indent=2)
+            console.print(f"[green]Successfully wrote difference to {args.output}")
+        else:
+            print(json.dumps(repos, indent=2))
+    except Exception as e:
+        console.print(f"[red]Error:[/red] {str(e)}", style="red")
+        sys.exit(1)
+
+
+def handle_sets_union(args):
+    try:
+        if not args.files:
+            console.print("[red]Error:[/red] No files provided", style="red")
+            sys.exit(1)
+        with console.status("Taking union of repositories..."):
+            repos = set_union_from_files(args.files)
+        if args.output:
+            with open(args.output, "w") as f:
+                json.dump(repos, f, indent=2)
+            console.print(f"[green]Successfully wrote merged repositories to {args.output}")
+        else:
+            print(json.dumps(repos, indent=2))
+    except Exception as e:
+        console.print(f"[red]Error:[/red] {str(e)}", style="red")
+        sys.exit(1)
+
+
+def handle_sets_intersect(args):
+    try:
+        if not args.files:
+            console.print("[red]Error:[/red] No files provided", style="red")
+            sys.exit(1)
+        with console.status("Taking intersection of repositories..."):
+            repos = set_intersect_from_files(args.files)
+        if args.output:
+            with open(args.output, "w") as f:
+                json.dump(repos, f, indent=2)
+            console.print(f"[green]Successfully wrote intersection to {args.output}")
+        else:
+            print(json.dumps(repos, indent=2))
+    except Exception as e:
+        console.print(f"[red]Error:[/red] {str(e)}", style="red")
+        sys.exit(1)
+
+
+def handle_filter(args):
+    try:
+        if not args.input_file:
             if sys.stdin.isatty():
-                console.print("[red]Error:[/red] No input provided", file=sys.stderr)
+                console.print("[red]Error:[/red] No input provided", style="red")
                 sys.exit(1)
             repos = json.load(sys.stdin)
         else:
-            with open(input_file) as f:
+            with open(args.input_file) as f:
                 repos = json.load(f)
-        
-        # Ensure repos is a list
         if isinstance(repos, dict):
             repos = [repos]
 
-        query = " ".join(query)
-        print(query)
-
+        query = " ".join(args.query)
+        print(query)  # For debugging purposes
         ast_query = jaf.dsl.parse.parse_dsl(query)
         console.print(ast_query)
-
-        # Apply filtering
         filtered_repos = jaf.jaf(repos, ast_query)
-        
-        # Output results
         console.print(json.dumps(filtered_repos, indent=2))
-    
     except jaf.jafError as je:
-        console.print(f"[red]Filter Error:[/red] {str(je)}")
+        console.print(f"[red]Filter Error:[/red] {str(je)}", style="red")
         sys.exit(1)
     except Exception as e:
-        console.print(f"[red]Error:[/red] {str(e)}")
+        console.print(f"[red]Error:[/red] {str(e)}", style="red")
         sys.exit(1)
 
-@cli.command()
-@click.argument('json_file', type=click.Path(exists=True), required=False)
-@click.option('--port', '-p', default=8501, help='Port to run dashboard on')
-@click.option('--host', default='localhost', 
-              help='Host to run dashboard on. Use 0.0.0.0 for network access')
-def dash(json_file, port: int, host: str):
-    """
-    Launch the repository dashboard
 
-    Args:
-        json_file (str): JSON file with repository data
-        port (int): Port to run dashboard on
-        host (str): Host to run dashboard on
-    """
-    from ghj.dash import launch_dashboard
+def handle_dash(args):
+    try:
+        from ghj.dash import launch_dashboard
+        if args.host != "localhost":
+            console.print("[yellow]Warning: Exposing dashboard to network - ensure you trust your network")
+        if args.json_file:
+            launch_dashboard(args.json_file, port=args.port, host=args.host)
+        else:
+            console.print("[yellow]No JSON file provided - dashboard will start in upload mode")
+            launch_dashboard(None, port=args.port, host=args.host)
+    except Exception as e:
+        console.print(f"[red]Error:[/red] {str(e)}", style="red")
+        sys.exit(1)
 
-    if host != 'localhost':
-        console.print("[yellow]Warning: Exposing dashboard to network - ensure you trust your network")
-    
-    if json_file:
-        launch_dashboard(json_file, port=port, host=host)
-    else:
-        console.print("[yellow]No JSON file provided - dashboard will start in upload mode")
-        launch_dashboard(None, port=port, host=host)
 
-@cli.command()
-@click.argument("input_file", type=click.Path(exists=True))
-@click.option("--content-dir", default="content/projects", help="Hugo content directory")
-@click.option("--static-dir", default="static/images", help="Hugo static directory")
-@click.option("--download-images/--no-images", default=True, help="Download repository images")
-def hugo(input_file: str, content_dir: str, static_dir: str, download_images: bool):
-    """
-    Generate Hugo content from repository data
-
-    Args:
-        input_file (str): Input file with repository data
-        content_dir (str): Hugo content directory
-        static_dir (str): Hugo static directory
-        download_images (bool): Download repository images
-    """
-    from ghj.hugo import HugoRenderer
-    
-    with console.status("[bold green]Loading repository data..."):
-        with open(input_file) as f:
-            repos = json.load(f)
+def handle_hugo(args):
+    try:
+        from ghj.hugo import HugoRenderer
+        with console.status("[bold green]Loading repository data..."):
+            with open(args.input_file) as f:
+                repos = json.load(f)
             if isinstance(repos, dict):
                 repos = [repos]
-
-    renderer = HugoRenderer(
-        content_dir=content_dir,
-        static_dir=static_dir
-    )
-    
-    with console.status("[bold green]Generating Hugo content..."):
-        renderer.render_repos(repos, download_images=download_images)
-    
-    console.print("[bold green]✓[/bold green] Hugo content generation complete!")
-
-def main():
-    """Main entry point for the ghj CLI"""
-    try:
-        cli()
+        renderer = HugoRenderer(
+            content_dir=args.content_dir,
+            static_dir=args.static_dir,
+        )
+        with console.status("[bold green]Generating Hugo content..."):
+            renderer.render_repos(repos, download_images=args.download_images)
+        console.print("[bold green]✓ Hugo content generation complete!")
     except Exception as e:
-        console.print(f"[red]Error:[/red] {str(e)}")
-        exit(1)
+        console.print(f"[red]Error:[/red] {str(e)}", style="red")
+        sys.exit(1)
+
 
 if __name__ == "__main__":
     main()
